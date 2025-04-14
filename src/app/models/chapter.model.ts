@@ -1,18 +1,3 @@
-export interface Novel {
-  id: string;
-  title: string;
-  description: string;
-  author: string;
-  coverImage: string;
-  status: "completed" | "ongoing";
-  categories: string[];
-  totalChapters: number;
-  views: number;
-  rating: number;
-  chapters: Chapter[];
-  updatedAt: string;
-}
-
 export interface Chapter {
   id: string;
   title: string;

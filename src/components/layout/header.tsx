@@ -144,7 +144,7 @@ export function Header() {
                     <Settings className="mr-2 h-4 w-4" />
                     {t("actions.settings")}
                   </DropdownMenuItem>
-                  {hasRole("admin") && (
+                  {hasRole(["ADMIN", "MODERATOR", "AUTHOR"]) && (
                     <DropdownMenuItem onClick={() => router.push("/admin")}>
                       <Shield className="mr-2 h-4 w-4" />
                       {t("actions.admin")}

@@ -28,7 +28,7 @@ export function useSuggest() {
     abortRef.current = ac;
     setLoading(true);
 
-    const base = process.env.NEXT_PUBLIC_API_BASE ?? "http://localhost:8081";
+    const base = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8081";
     fetch(`${base}/api/novels/suggest?q=${encodeURIComponent(q)}&size=8`, {
       signal: ac.signal,
       cache: "no-store",

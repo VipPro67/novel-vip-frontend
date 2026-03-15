@@ -296,6 +296,33 @@ export const createNovelApi = (client: ApiClient) => ({
     return client.request<PageResponse<Novel>>(`/api/novels/latest-updates?${searchParams}`)
   },
 
+  async getHotNovelsStats() {
+    return client.request<{
+      mostViewedWeek: number
+      risingStars: number
+      popularAvgRating: number
+      hotStreakDays: number
+    }>("/api/novels/hot/stats")
+  },
+
+  async getTopRatedNovelsStats() {
+    return client.request<{
+      fiveStarNovels: number
+      fourPlusStarNovels: number
+      hallOfFame: number
+      highlyRatedAvg: number
+    }>("/api/novels/top-rated/stats")
+  },
+
+  async getLatestUpdatesStats() {
+    return client.request<{
+      updatedToday: number
+      updatedThisWeek: number
+      regularUpdates: number
+      freshChapters: number
+    }>("/api/novels/latest-updates/stats")
+  },
+
   async getReadingHistory(
       params: {
         page?: number  

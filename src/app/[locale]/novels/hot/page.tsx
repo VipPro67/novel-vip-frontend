@@ -16,10 +16,29 @@ export default function HotNovelsPage() {
   const [currentPage, setCurrentPage] = useState(0);
   const [totalPages, setTotalPages] = useState(0);
   const [viewMode, setViewMode] = useState<"grid" | "list">("grid");
+  const [stats, setStats] = useState({
+    mostViewedWeek: 0,
+    risingStars: 0,
+     लोकप्रियAvघRating: 0,
+    popularAvgRating: 0,
+    hotStreakDays: 0,
+  });
 
   useEffect(() => {
     fetchHotNovels();
+    fetchStats();
   }, [currentPage]);
+
+  const fetchStats = async () => {
+    try {
+      const resp = await api.getHotNovelsStats();
+      if (resp.success && resp.data) {
+        setStats(resp.data);
+      }
+    } catch (e) {
+      console.error(e);
+    }
+  };
 
   const fetchHotNovels = async () => {
     setLoading(true);
@@ -94,7 +113,7 @@ export default function HotNovelsPage() {
                 <Eye className="h-4 w-4 text-orange-500" />
               </CardHeader>
               <CardContent>
-                <div className="text-2xl font-bold">1.2M+</div>
+                <div className="text-2xl font-bold">{stats.mostViewedWeek.toLocaleString()}+</div>
                 <p className="text-xs text-muted-foreground">views this week</p>
               </CardContent>
             </Card>
@@ -106,7 +125,7 @@ export default function HotNovelsPage() {
                 <TrendingUp className="h-4 w-4 text-orange-500" />
               </CardHeader>
               <CardContent>
-                <div className="text-2xl font-bold">45</div>
+                <div className="text-2xl font-bold">{stats.risingStars}</div>
                 <p className="text-xs text-muted-foreground">
                   new trending novels
                 </p>
@@ -118,7 +137,7 @@ export default function HotNovelsPage() {
                 <Star className="h-4 w-4 text-orange-500" />
               </CardHeader>
               <CardContent>
-                <div className="text-2xl font-bold">4.8</div>
+                <div className="text-2xl font-bold">{stats.popularAvgRating}</div>
                 <p className="text-xs text-muted-foreground">average rating</p>
               </CardContent>
             </Card>
@@ -130,7 +149,7 @@ export default function HotNovelsPage() {
                 <Trophy className="h-4 w-4 text-orange-500" />
               </CardHeader>
               <CardContent>
-                <div className="text-2xl font-bold">7</div>
+                <div className="text-2xl font-bold">{stats.hotStreakDays}</div>
                 <p className="text-xs text-muted-foreground">days trending</p>
               </CardContent>
             </Card>

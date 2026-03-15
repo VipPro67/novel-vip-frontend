@@ -11,6 +11,7 @@ COPY package*.json ./
 # Install dependencies
 RUN npm ci --omit=dev --legacy-peer-deps
 
+RUN npm i baseline-browser-mapping@latest -D 
 # Copy all source files
 COPY . .
 

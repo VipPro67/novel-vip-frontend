@@ -19,46 +19,34 @@ export default function AdminDashboard() {
 }
 
 function AdminDashboardContent() {
-  // Use lazy state initialization for complex initial state
   const [stats, setStats] = useState(() => ({
     totalUsers: 0,
-    totalNovels: 0,
-    totalChapters: 0,
-    totalViews: 0,
-    activeUsers: 0,
     newUsersToday: 0,
+    totalNovels: 0,
     popularNovels: 0,
+    totalChapters: 0,
+    chaptersToday: 0,
+    totalViews: 0,
+    viewsGrowth: 0,
+    activeUsers: 0,
     avgRating: 0,
+    commentsToday: 0,
+    commentsGrowth: 0,
   }))
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
-    //fetchDashboardStats()
+    fetchDashboardStats()
   }, [])
 
   const fetchDashboardStats = async () => {
     try {
-      // In a real app, you'd have dedicated admin endpoints for these stats
-      // For now, we'll simulate with existing endpoints
-      const [usersResponse, novelsResponse] = await Promise.all([
-        api.getAllUsers({ size: 1 }), // Just to get total count
-        api.getNovels({ size: 1 }), // Just to get total count
-      ])
-
-      if (usersResponse.success && novelsResponse.success) {
-        setStats({
-          totalUsers: usersResponse.data.totalElements,
-          totalNovels: novelsResponse.data.totalElements,
-          totalChapters: 1250, // Mock data
-          totalViews: 45678, // Mock data
-          activeUsers: 234, // Mock data
-          newUsersToday: 12, // Mock data
-          popularNovels: 45, // Mock data
-          avgRating: 4.2, // Mock data
-        })
+      const response = await api.getDashboardStats()
+      if (response.success && response.data) {
+        setStats(response.data)
       }
     } catch (error) {
-      console.error("Failed to fetch dashboard stats:", error)
+      console.error("Failed to fetch dashboard stats", error)
     } finally {
       setLoading(false)
     }
@@ -105,7 +93,7 @@ function AdminDashboardContent() {
               </CardHeader>
               <CardContent>
                 <div className="text-2xl font-bold">{loading ? "..." : stats.totalChapters.toLocaleString()}</div>
-                <p className="text-xs text-muted-foreground">+25 published today</p>
+                <p className="text-xs text-muted-foreground">+{stats.chaptersToday} published today</p>
               </CardContent>
             </Card>
 
@@ -116,7 +104,7 @@ function AdminDashboardContent() {
               </CardHeader>
               <CardContent>
                 <div className="text-2xl font-bold">{loading ? "..." : stats.totalViews.toLocaleString()}</div>
-                <p className="text-xs text-muted-foreground">+12% from last month</p>
+                <p className="text-xs text-muted-foreground">+{stats.viewsGrowth}% from last month</p>
               </CardContent>
             </Card>
           </div>

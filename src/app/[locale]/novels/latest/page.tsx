@@ -16,10 +16,28 @@ export default function LatestNovelsPage() {
   const [currentPage, setCurrentPage] = useState(0);
   const [totalPages, setTotalPages] = useState(0);
   const [viewMode, setViewMode] = useState<"grid" | "list">("grid");
+  const [stats, setStats] = useState({
+    updatedToday: 0,
+    updatedThisWeek: 0,
+    regularUpdates: 0,
+    freshChapters: 0,
+  });
 
   useEffect(() => {
     fetchLatestNovels();
+    fetchStats();
   }, [currentPage]);
+
+  const fetchStats = async () => {
+    try {
+      const resp = await api.getLatestUpdatesStats();
+      if (resp.success && resp.data) {
+        setStats(resp.data);
+      }
+    } catch (e) {
+      console.error(e);
+    }
+  };
 
   const fetchLatestNovels = async () => {
     setLoading(true);
@@ -106,7 +124,7 @@ export default function LatestNovelsPage() {
                 <Zap className="h-4 w-4 text-blue-500" />
               </CardHeader>
               <CardContent>
-                <div className="text-2xl font-bold">127</div>
+                <div className="text-2xl font-bold">{stats.updatedToday}</div>
                 <p className="text-xs text-muted-foreground">updated today</p>
               </CardContent>
             </Card>
@@ -116,7 +134,7 @@ export default function LatestNovelsPage() {
                 <Calendar className="h-4 w-4 text-blue-500" />
               </CardHeader>
               <CardContent>
-                <div className="text-2xl font-bold">892</div>
+                <div className="text-2xl font-bold">{stats.updatedThisWeek}</div>
                 <p className="text-xs text-muted-foreground">
                   updated this week
                 </p>
@@ -128,7 +146,7 @@ export default function LatestNovelsPage() {
                 <Clock className="h-4 w-4 text-blue-500" />
               </CardHeader>
               <CardContent>
-                <div className="text-2xl font-bold">1.2K</div>
+                <div className="text-2xl font-bold">{stats.regularUpdates}</div>
                 <p className="text-xs text-muted-foreground">regular updates</p>
               </CardContent>
             </Card>
@@ -138,7 +156,7 @@ export default function LatestNovelsPage() {
                 <BookOpen className="h-4 w-4 text-blue-500" />
               </CardHeader>
               <CardContent>
-                <div className="text-2xl font-bold">45</div>
+                <div className="text-2xl font-bold">{stats.freshChapters}</div>
                 <p className="text-xs text-muted-foreground">new chapters</p>
               </CardContent>
             </Card>

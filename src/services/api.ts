@@ -23,6 +23,7 @@ import { createVideosApi } from "./api/videos"
 import { createCorrectionApi } from "./api/corrections"
 import { createNovelSourcesApi } from "./api/novel-sources"
 import { createGamificationApi } from "./api/gamification"
+import { createAdminDashboardApi } from "./api/admin-dashboard"
 
 type ApiModules =
   & ReturnType<typeof createAuthApi>
@@ -49,6 +50,7 @@ type ApiModules =
   & ReturnType<typeof createCorrectionApi>
   & ReturnType<typeof createNovelSourcesApi>
   & ReturnType<typeof createGamificationApi>
+  & ReturnType<typeof createAdminDashboardApi>
 
 type ApiService = ApiClient & ApiModules
 
@@ -79,6 +81,7 @@ const factories = [
   createCorrectionApi,
   createNovelSourcesApi,
   createGamificationApi,
+  createAdminDashboardApi,
 ] as const
 
 // Add corrections API

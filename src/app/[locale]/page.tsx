@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button"
 import { NovelCard } from "@/components/novel/novel-card"
 import { RecentlyReadSection } from "@/components/home/recently-read-section"
 import { api } from "@/services/api"
-
+export const dynamic = 'force-dynamic';
 // Use React.cache() for per-request deduplication
 const getCachedHomeData = cache(async () => {
   // Promise.all for parallel execution

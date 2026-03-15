@@ -16,10 +16,28 @@ export default function TopRatedNovelsPage() {
   const [currentPage, setCurrentPage] = useState(0);
   const [totalPages, setTotalPages] = useState(0);
   const [viewMode, setViewMode] = useState<"grid" | "list">("grid");
+  const [stats, setStats] = useState({
+    fiveStarNovels: 0,
+    fourPlusStarNovels: 0,
+    hallOfFame: 0,
+    highlyRatedAvg: 0,
+  });
 
   useEffect(() => {
     fetchTopRatedNovels();
+    fetchStats();
   }, [currentPage]);
+
+  const fetchStats = async () => {
+    try {
+      const resp = await api.getTopRatedNovelsStats();
+      if (resp.success && resp.data) {
+        setStats(resp.data);
+      }
+    } catch (e) {
+      console.error(e);
+    }
+  };
 
   const fetchTopRatedNovels = async () => {
     setLoading(true);
@@ -92,7 +110,7 @@ export default function TopRatedNovelsPage() {
                 <Star className="h-4 w-4 text-yellow-500" />
               </CardHeader>
               <CardContent>
-                <div className="text-2xl font-bold">156</div>
+                <div className="text-2xl font-bold">{stats.fiveStarNovels}</div>
                 <p className="text-xs text-muted-foreground">
                   perfect rated novels
                 </p>
@@ -104,7 +122,7 @@ export default function TopRatedNovelsPage() {
                 <Award className="h-4 w-4 text-yellow-500" />
               </CardHeader>
               <CardContent>
-                <div className="text-2xl font-bold">2.1K</div>
+                <div className="text-2xl font-bold">{stats.fourPlusStarNovels.toLocaleString()}</div>
                 <p className="text-xs text-muted-foreground">
                   highly rated novels
                 </p>
@@ -118,7 +136,7 @@ export default function TopRatedNovelsPage() {
                 <Crown className="h-4 w-4 text-yellow-500" />
               </CardHeader>
               <CardContent>
-                <div className="text-2xl font-bold">25</div>
+                <div className="text-2xl font-bold">{stats.hallOfFame}</div>
                 <p className="text-xs text-muted-foreground">
                   legendary novels
                 </p>
@@ -132,7 +150,7 @@ export default function TopRatedNovelsPage() {
                 <Trophy className="h-4 w-4 text-yellow-500" />
               </CardHeader>
               <CardContent>
-                <div className="text-2xl font-bold">4.7</div>
+                <div className="text-2xl font-bold">{stats.highlyRatedAvg}</div>
                 <p className="text-xs text-muted-foreground">average rating</p>
               </CardContent>
             </Card>

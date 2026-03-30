@@ -20,6 +20,10 @@ const nextConfig = {
       {
         protocol: "https",
         hostname: "s3.ap-southeast-2.amazonaws.com",
+      },
+      {
+        protocol: "https",
+        hostname: "*.r2.cloudflarestorage.com",
       }
     ],
   },

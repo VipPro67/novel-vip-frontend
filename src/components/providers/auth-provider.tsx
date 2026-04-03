@@ -18,87 +18,34 @@ interface AuthContextType {
   refreshUser: () => Promise<void>
 }
 type AuthResponse = ApiResponse<{
-  accessToken?: string
   id?: string
   username?: string
   email?: string
   roles?: string[]
-}>
+} | undefined>
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined)
 
-// Helper function to decode JWT token
-function decodeJWT(token: string) {
-  try {
-    const base64Url = token.split(".")[1]
-    const base64 = base64Url.replace(/-/g, "+").replace(/_/g, "/")
-    const jsonPayload = decodeURIComponent(
-      atob(base64)
-        .split("")
-        .map((c) => "%" + ("00" + c.charCodeAt(0).toString(16)).slice(-2))
-        .join(""),
-    )
-    return JSON.parse(jsonPayload)
-  } catch (error) {
-    console.error("Error decoding JWT:", error)
-    return null
-  }
-}
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null)
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
-    const token = localStorage.getItem("token")
-    if (token) {
-      api.setToken(token)
-      const decodedToken = decodeJWT(token)
-      if (decodedToken) {
-        const currentTime = Date.now() / 1000
-        if (decodedToken.exp < currentTime) {
-          api.clearToken()
-          setLoading(false)
-          return
-        }
-
-        const userData: User = {
-          id: decodedToken.userId,
-          username: decodedToken.sub,
-          email: decodedToken.email,
-          roles: decodedToken.roles || [],
-        }
-        setUser(userData)
-
-        fetchUserProfile()
-      } else {
-        api.clearToken()
-        setLoading(false)
-      }
-    } else {
-      setLoading(false)
-    }
+    // On mount, try fetching the user profile — the httpOnly accessToken cookie
+    // is sent automatically. If it fails/expires the 401 handler will try to refresh.
+    fetchUserProfile()
   }, [])
 
   const buildUserFromAuthData = (payload?: AuthResponse["data"]): User | null => {
-    if (!payload?.accessToken && (!payload?.id || !payload?.username || !payload?.email)) {
+    if (!payload?.id || !payload?.username || !payload?.email) {
       return null
     }
-
-    const decodedToken = payload?.accessToken ? decodeJWT(payload.accessToken) : null
-    const id = decodedToken?.userId || payload?.id
-    const username = decodedToken?.sub || payload?.username
-    const email = decodedToken?.email || payload?.email
-
-    if (!id || !username || !email) {
-      return null
-    }
-
     return {
-      id: String(id),
-      username: String(username),
-      email: String(email),
-      roles: decodedToken?.roles || payload?.roles || [],
+      id: String(payload.id),
+      username: String(payload.username),
+      email: String(payload.email),
+      roles: payload.roles || [],
     }
   }
 
@@ -168,8 +115,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     return response
   }
 
-  const logout = () => {
-    api.clearToken()
+  const logout = async () => {
+    try {
+      // Ask the server to clear the httpOnly cookies
+      await api.request("/api/auth/signout", { method: "POST" })
+    } catch {
+      // ignore — clear local state regardless
+    }
     if (typeof window !== "undefined") {
       window.localStorage.removeItem("readerSettings")
     }

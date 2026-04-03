@@ -8,35 +8,11 @@ export type ApiError = Error & {
 }
 
 export class ApiClient {
-  protected token: string | null = null
-
-  constructor(public readonly baseURL: string) {
-    if (typeof window !== "undefined") {
-      this.token = localStorage.getItem("token")
-    }
-  }
-
-  setToken(token: string) {
-    this.token = token
-    if (typeof window !== "undefined") {
-      localStorage.setItem("token", token)
-    }
-  }
-
-  clearToken() {
-    this.token = null
-    if (typeof window !== "undefined") {
-      localStorage.removeItem("token")
-    }
-  }
-
-  getToken() {
-    return this.token
-  }
+  constructor(public readonly baseURL: string) {}
 
   private isRefreshing = false
   private failedRequestsQueue: Array<{
-    resolve: (value: unknown) => void
+    resolve: () => void
     reject: (reason?: unknown) => void
   }> = []
 
@@ -49,14 +25,11 @@ export class ApiClient {
       headers["Content-Type"] = "application/json"
     }
 
-    if (this.token) {
-      headers["Authorization"] = `Bearer ${this.token}`
-    }
-
     try {
       const response = await fetch(url, {
         ...options,
         headers,
+        credentials: "include", // Always send cookies (accessToken + refreshToken)
       })
 
       const contentType = response.headers.get("content-type") || ""
@@ -76,21 +49,16 @@ export class ApiClient {
           if (!this.isRefreshing) {
             this.isRefreshing = true
             try {
-              const refreshResponse = await this.refreshToken()
-              if (refreshResponse.success && refreshResponse.data?.accessToken) {
-                this.setToken(refreshResponse.data.accessToken)
-                this.processQueue(null, refreshResponse.data.accessToken)
-
-                // Retry original request with new token
+              const refreshOk = await this.refreshToken()
+              if (refreshOk) {
+                this.processQueue(null)
+                // Retry the original request — new accessToken cookie is already set
                 return this.request<T>(endpoint, options)
               } else {
                 throw new Error("Refresh failed")
               }
             } catch (refreshError) {
-              this.processQueue(refreshError, null)
-              this.clearToken()
-              // Redirect to login or handle logout?
-              // For now just throw the original 401 or refresh error
+              this.processQueue(refreshError)
               const fallbackMessage = "Authentication failed. Please login again."
               const message = parsedBody?.message || fallbackMessage
               const error: ApiError = Object.assign(new Error(message), {
@@ -102,17 +70,15 @@ export class ApiClient {
               this.isRefreshing = false
             }
           } else {
-            // Add to queue
+            // Queue concurrent requests until refresh completes
             return new Promise((resolve, reject) => {
               this.failedRequestsQueue.push({
-                resolve: (token: any) => {
-                  // Retry with new token
-                  const newHeaders = { ...headers, Authorization: `Bearer ${token}` }
-                  resolve(this.request<T>(endpoint, { ...options, headers: newHeaders }))
+                resolve: () => {
+                  resolve(this.request<T>(endpoint, options))
                 },
                 reject: (err) => {
                   reject(err)
-                }
+                },
               })
             })
           }
@@ -153,39 +119,30 @@ export class ApiClient {
     }
   }
 
-  private async refreshToken(): Promise<ApiResponse<{ accessToken: string } | undefined>> {
+  /**
+   * Calls the refresh endpoint. The browser automatically sends the refreshToken
+   * httpOnly cookie, and the server responds with a Set-Cookie for the new accessToken.
+   * Returns true if the refresh was successful.
+   */
+  private async refreshToken(): Promise<boolean> {
     try {
-      // The refresh token is in HttpOnly cookie, so we don't send it manually in body/header
-      // unless backend expects it differently. The implementation assumes cookie.
-      // But we pass credentials: 'include' to send cookies.
-
       const response = await fetch(`${this.baseURL}/api/auth/refresh`, {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json"
-        },
-        credentials: "include" // Important for sending cookies
+        credentials: "include", // sends the refreshToken cookie
       })
-
-      const data = await response.json()
-      return data
+      return response.ok
     } catch (error) {
       console.error("Error refreshing token:", error)
-      return {
-        success: false,
-        message: "Failed to refresh token",
-        statusCode: 401,
-        data: undefined
-      }
+      return false
     }
   }
 
-  private processQueue(error: any, token: string | null = null) {
+  private processQueue(error: unknown) {
     this.failedRequestsQueue.forEach((prom) => {
       if (error) {
         prom.reject(error)
       } else {
-        prom.resolve(token)
+        prom.resolve()
       }
     })
     this.failedRequestsQueue = []

@@ -9,28 +9,25 @@ function hashPassword(password: string): string {
 
 export const createAuthApi = (client: ApiClient) => ({
   async login(email: string, password: string) {
-      const hashedPassword = hashPassword(password)
+    const hashedPassword = hashPassword(password)
     const response = await client.request<{
       id: string
       username: string
       email: string
       roles: string[]
-      tokenType: string
-      accessToken: string
+      accessTokenExpiresAt: string
+      refreshTokenExpiresAt: string
     }>("/api/auth/signin", {
       method: "POST",
       body: JSON.stringify({ email, password: hashedPassword }),
     })
 
-    if (response.success && response.data.accessToken) {
-      client.setToken(response.data.accessToken)
-    }
-
+    // Tokens are now set as httpOnly cookies by the server — nothing to store locally
     return response
   },
 
   async register(username: string, email: string, password: string): Promise<ApiResponse<string>> {
-      const hashedPassword = hashPassword(password)
+    const hashedPassword = hashPassword(password)
     return client.request("/api/auth/signup", {
       method: "POST",
       body: JSON.stringify({ username, email, password: hashedPassword }),
@@ -47,17 +44,14 @@ export const createAuthApi = (client: ApiClient) => ({
       username: string
       email: string
       roles: string[]
-      tokenType: string
-      accessToken: string
+      accessTokenExpiresAt: string
+      refreshTokenExpiresAt: string
     }>("/api/auth/google", {
       method: "POST",
       body: JSON.stringify({ credential }),
     })
 
-    if (response.success && response.data.accessToken) {
-      client.setToken(response.data.accessToken)
-    }
-
+    // Tokens are now set as httpOnly cookies by the server — nothing to store locally
     return response
   },
 
@@ -83,13 +77,14 @@ export const createAuthApi = (client: ApiClient) => ({
   },
 
   async changePassword(oldPassword: string, newPassword: string, confirmPassword: string) {
-      const hashedOldPassword = hashPassword(oldPassword)
-      const hashedNewPassword = hashPassword(newPassword)
-      const hashedConfirmPassword = hashPassword(confirmPassword)
-    
+    const hashedOldPassword = hashPassword(oldPassword)
+    const hashedNewPassword = hashPassword(newPassword)
+    const hashedConfirmPassword = hashPassword(confirmPassword)
+
     return client.request<void>("/api/users/change-password", {
       method: "PUT",
       body: JSON.stringify({ oldPassword: hashedOldPassword, newPassword: hashedNewPassword, confirmPassword: hashedConfirmPassword }),
     })
   },
 })
+

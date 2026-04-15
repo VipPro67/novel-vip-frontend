@@ -4,6 +4,14 @@ const withNextIntl = createNextIntlPlugin("./src/i18n/request.ts")
 
 /** @type {import('next').NextConfig} */
 const nextConfig = {
+	async rewrites() {
+    return [
+      {
+        source: '/api/backend/:path*',
+        destination: 'http://YOUR_LIGHTSAIL_IP:8080/:path*', 
+      },
+    ]
+  },
   typescript: {
     ignoreBuildErrors: true,
   },
@@ -58,6 +66,8 @@ const nextConfig = {
   //   }
   //   return config
   // },
+	
 }
+
 
 export default withNextIntl(nextConfig)

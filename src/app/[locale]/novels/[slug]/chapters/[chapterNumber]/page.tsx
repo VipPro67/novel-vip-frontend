@@ -2,7 +2,6 @@
 
 import { useState, useEffect, useCallback, useMemo, useRef, use } from "react";
 import type { CSSProperties } from "react";
-import { Client } from "@stomp/stompjs";
 import { Link } from "@/navigation";
 import { useParams } from "next/navigation";
 import { useRouter } from "@/navigation";
@@ -438,45 +437,6 @@ export default function ChapterPage() {
 
     }
   };
-
-  // Poll for audio completion (fallback to WebSocket notifications)
-  const pollForAudioCompletion = useCallback(async (chapterId: string) => {
-    let attempts = 0;
-    const maxAttempts = 120; // Poll for up to 10 minutes (120 * 5 seconds)
-    const pollInterval = 5000; // Poll every 5 seconds
-
-    const poll = async () => {
-      if (attempts >= maxAttempts) {
-        console.warn("Audio polling timeout - max attempts reached");
-        setAudioGenerating(false);
-        setAudioError("Audio generation is taking longer than expected. Please refresh the page.");
-        return;
-      }
-
-      try {
-        const response = await api.getChapterByNumber2(slug as string, chapterNumber);
-        if (response.success && response.data.audioUrl) {
-          console.log("Audio generation completed via polling");
-          setAudioUrl(response.data.audioUrl);
-          setAudioGenerating(false);
-          setAudioError(null);
-          setChapter(response.data);
-          toast({
-            title: "Success",
-            description: "Audio has been generated successfully!",
-          });
-          return;
-        }
-      } catch (error) {
-        console.error("Error polling for audio:", error);
-      }
-
-      attempts++;
-      setTimeout(poll, pollInterval);
-    };
-
-    poll();
-  }, [slug, chapterNumber, toast]);
   const handleGenerateAudio = useCallback(async () => {
     if (!chapter?.id) {
       return;
@@ -491,8 +451,6 @@ export default function ChapterPage() {
         setAudioLoading(false);
         setAudioGenerating(true);
 
-        // Start polling for audio availability as fallback
-        pollForAudioCompletion(chapter.id);
       } else {
         setAudioError("Audio is not available yet. Please try again shortly.");
       }
@@ -502,7 +460,7 @@ export default function ChapterPage() {
     } finally {
       setAudioLoading(false);
     }
-  }, [chapter?.id, pollForAudioCompletion]);
+  }, [chapter?.id]);
 
   useEffect(() => {
     if (!chapter) {
@@ -519,62 +477,6 @@ export default function ChapterPage() {
       setAudioUrl(null);
     }
   }, [chapter]);
-
-  useEffect(() => {
-    if (!chapter || wsConnectedRef.current) return;
-
-    const client = new Client({
-      brokerURL: process.env.NEXT_PUBLIC_WS_URL || "ws://localhost:8081/ws",
-    });
-
-    client.onConnect = () => {
-      wsConnectedRef.current = true;
-      // Subscribe to comments
-      client.subscribe(`/topic/chapter.${chapter.id}`, (message) => {
-        const incoming: Comment = JSON.parse(message.body);
-        setComments((prev) => [incoming, ...prev]);
-        setTotalComments((prev) => prev + 1);
-      });
-
-      // Subscribe to audio generation completion
-      client.subscribe(`/topic/chapter.${chapter.id}.audio`, (message) => {
-        try {
-          const audioData = JSON.parse(message.body);
-          console.log("Audio generation completed for chapter", audioData);
-
-          // Update audio URL and stop loading state
-          if (audioData.audioUrl) {
-            setAudioUrl(audioData.audioUrl);
-            setAudioGenerating(false);
-            setAudioError(null);
-
-            toast({
-              title: "Success",
-              description: "Audio has been generated successfully!",
-            });
-
-            // Refetch chapter to ensure we have all latest data
-            fetchChapter();
-          }
-        } catch (error) {
-          console.error("Failed to parse audio generation message", error);
-        }
-      });
-    };
-
-    client.onDisconnect = () => {
-      wsConnectedRef.current = false;
-    };
-
-    client.activate();
-
-    return () => {
-      wsConnectedRef.current = false;
-      if (client.active) {
-        client.deactivate();
-      }
-    };
-  }, [chapter?.id, toast]);
 
   const organizeComments = (comments: Comment[]): CommentWithReplies[] => {
     const commentMap = new Map<string, CommentWithReplies>();

@@ -8,7 +8,7 @@ const nextConfig = {
     return [
       {
         source: '/api/backend/:path*',
-        destination: 'http://YOUR_LIGHTSAIL_IP:8080/:path*', 
+        destination: 'http://13.213.96.89:8081/:path*', 
       },
     ]
   },

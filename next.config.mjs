@@ -4,14 +4,6 @@ const withNextIntl = createNextIntlPlugin("./src/i18n/request.ts")
 
 /** @type {import('next').NextConfig} */
 const nextConfig = {
-	async rewrites() {
-    return [
-      {
-        source: '/api/backend/:path*',
-        destination: 'http://13.213.96.89:8081/:path*', 
-      },
-    ]
-  },
   typescript: {
     ignoreBuildErrors: true,
   },

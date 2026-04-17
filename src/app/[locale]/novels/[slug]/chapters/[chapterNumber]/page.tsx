@@ -451,8 +451,13 @@ export default function ChapterPage() {
         // Sync local chapter state with server response (audioUrl may already be present).
         setChapter(response.data);
         setAudioError(null);
-        setAudioLoading(false);
-        setAudioGenerating(true);
+
+        // If audio already exists, don't keep showing the "generating" spinner.
+        if (response.data.audioUrl) {
+          setAudioGenerating(false);
+        } else {
+          setAudioGenerating(true);
+        }
 
       } else {
         setAudioError("Audio is not available yet. Please try again shortly.");
@@ -487,6 +492,10 @@ export default function ChapterPage() {
         const refreshed = await api.getChapterByNumber2(slug, chapterNumber);
         if (refreshed.success) {
           setChapter(refreshed.data);
+          if (refreshed.data.audioUrl) {
+            setAudioGenerating(false);
+            setAudioLoading(false);
+          }
         }
       } catch (err) {
         console.warn("Failed to refresh chapter after audio-ready notification", err);
@@ -512,10 +521,29 @@ export default function ChapterPage() {
     if (chapter.audioUrl) {
       setAudioUrl(chapter.audioUrl);
       setAudioError(null);
+      setAudioGenerating(false);
     } else {
       setAudioUrl(null);
     }
   }, [chapter]);
+
+  // If user enabled auto audio and we don't have audio yet, enqueue generation after chapter loads.
+  useEffect(() => {
+    if (!chapter?.id) return;
+    if (effectiveReaderSettings?.audioAutoNextChapter !== true) return;
+    if (audioUrl) return;
+    if (audioGenerating || audioLoading) return;
+
+    // Avoid calling setState during render; trigger generation from an effect.
+    void handleGenerateAudio();
+  }, [
+    chapter?.id,
+    effectiveReaderSettings?.audioAutoNextChapter,
+    audioUrl,
+    audioGenerating,
+    audioLoading,
+    handleGenerateAudio,
+  ]);
 
   const organizeComments = (comments: Comment[]): CommentWithReplies[] => {
     const commentMap = new Map<string, CommentWithReplies>();
@@ -1146,10 +1174,6 @@ export default function ChapterPage() {
           </audio>
         </div>
       );
-    }
-
-    if (audioUrl === null && effectiveReaderSettings?.audioAutoNextChapter === true) {
-      handleGenerateAudio();
     }
 
     if (audioError) {

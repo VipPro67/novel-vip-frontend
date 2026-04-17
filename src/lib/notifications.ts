@@ -11,6 +11,20 @@ let currentUserId: string | null = null; // Track current user to prevent duplic
 const CONNECTION_TIMEOUT_MS = 5000; // 5 second timeout for initial connection
 let connectionTimeoutId: NodeJS.Timeout | null = null;
 
+// Allow any page to react to notifications without coupling everything to the bell UI.
+// Example listeners: Novel page can refresh comments; Chapter page can refresh audioUrl when ready.
+const NOTIFICATION_EVENT_NAME = "novelvip:notification";
+
+function broadcastNotification(notification: Notification) {
+  try {
+    window.dispatchEvent(
+      new CustomEvent<Notification>(NOTIFICATION_EVENT_NAME, { detail: notification }),
+    );
+  } catch {
+    // ignore - CustomEvent may fail in some non-browser environments
+  }
+}
+
 function getDeviceId(): string {
   if (typeof window === "undefined") return "server";
   let deviceId = sessionStorage.getItem("deviceId");
@@ -92,6 +106,7 @@ export function connectNotifications(
     eventSource.addEventListener("notification", (event) => {
       try {
         const notification: Notification = JSON.parse(event.data);
+        broadcastNotification(notification);
         onNotification(notification);
       } catch (error) {
         console.error("Failed to parse notification:", error);

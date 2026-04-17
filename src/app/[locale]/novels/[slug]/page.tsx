@@ -50,7 +50,7 @@ import { useAuth } from "@/components/providers/auth-provider"
 import { useToast } from "@/hooks/use-toast"
 import { api} from "@/services/api"
 import { formatRelativeTime } from "@/lib/utils"
-import { Comment, Chapter, Novel } from "@/models"
+import { Comment, Chapter, Novel, type Notification } from "@/models"
 
 // Dynamic imports for heavy components
 const ReportDialog = dynamic(() => import("@/components/report/report-dialog").then(mod => ({ default: mod.ReportDialog })), {
@@ -241,8 +241,9 @@ export default function NovelDetailPage() {
     return rootComments
   }
 
-  const fetchNovelComments = async () => {
-    if (!novel || commentsLoaded) return
+  const fetchNovelComments = async (opts?: { force?: boolean }) => {
+    const force = opts?.force === true
+    if (!novel || (!force && commentsLoaded)) return
 
     setCommentsLoading(true)
     try {
@@ -270,6 +271,28 @@ export default function NovelDetailPage() {
       setCommentsLoading(false)
     }
   }
+
+  // If the user is already on the novel page and a comment-reply notification arrives,
+  // refresh comments and bring them into view.
+  useEffect(() => {
+    if (typeof window === "undefined") return
+    if (!novel) return
+
+    const handler = (event: Event) => {
+      const notification = (event as CustomEvent<Notification>).detail
+      if (!notification) return
+
+      if (notification.type !== "COMMENT") return
+
+      // Backend currently doesn't include a commentId/novelSlug reference for COMMENT,
+      // so the best we can do client-side is refresh the current novel's comments.
+      setTab("comments")
+      void fetchNovelComments({ force: true })
+    }
+
+    window.addEventListener("novelvip:notification", handler as EventListener)
+    return () => window.removeEventListener("novelvip:notification", handler as EventListener)
+  }, [novel?.id])
 
   const handleShowComments = () => {
     if (!commentsLoaded) {

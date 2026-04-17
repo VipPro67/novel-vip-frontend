@@ -38,6 +38,7 @@ import {
   Chapter,
   type ChapterDetail,
   type Comment,
+  type Notification,
   type ReaderSettings,
 } from "@/models";
 import { formatRelativeTime } from "@/lib/utils";
@@ -447,6 +448,8 @@ export default function ChapterPage() {
     try {
       const response = await api.getChapterAudio(chapter.id);
       if (response.success) {
+        // Sync local chapter state with server response (audioUrl may already be present).
+        setChapter(response.data);
         setAudioError(null);
         setAudioLoading(false);
         setAudioGenerating(true);
@@ -461,6 +464,42 @@ export default function ChapterPage() {
       setAudioLoading(false);
     }
   }, [chapter?.id]);
+
+  // When audio generation completes, backend sends a CHAPTER_UPDATE notification with a reference like:
+  // `${slug}/chapters/${chapterNumber}`. If the user is already on that chapter page, refresh chapter
+  // detail so audioUrl appears and the existing autoplay effect can kick in.
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    if (!slug || Number.isNaN(chapterNumber)) return;
+
+    const handler = async (event: Event) => {
+      const notification = (event as CustomEvent<Notification>).detail;
+      if (!notification) return;
+
+      const title = (notification.title || "").toLowerCase();
+      const looksLikeAudioReady = notification.type === "CHAPTER_UPDATE" && title.includes("audio");
+      if (!looksLikeAudioReady) return;
+
+      const expectedRef = `${slug}/chapters/${chapterNumber}`;
+      if (notification.reference && notification.reference !== expectedRef) return;
+
+      try {
+        const refreshed = await api.getChapterByNumber2(slug, chapterNumber);
+        if (refreshed.success) {
+          setChapter(refreshed.data);
+        }
+      } catch (err) {
+        console.warn("Failed to refresh chapter after audio-ready notification", err);
+      }
+    };
+
+    window.addEventListener("novelvip:notification", handler as unknown as EventListener);
+    return () =>
+      window.removeEventListener(
+        "novelvip:notification",
+        handler as unknown as EventListener
+      );
+  }, [slug, chapterNumber]);
 
   useEffect(() => {
     if (!chapter) {

@@ -89,16 +89,12 @@ export const createNovelApi = (client: ApiClient) => ({
     formData.append("coverImage", coverImage)
 
     const headers: HeadersInit = {}
-    const token = client.getToken()
-    if (token) {
-      headers.Authorization = `Bearer ${token}`
-    }
-
     try {
       const response = await fetch(`${client.baseURL}/api/novels/${id}/cover`, {
         method: "PUT",
         headers,
         body: formData,
+        credentials: "include"
       })
 
       if (!response.ok) {

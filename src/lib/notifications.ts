@@ -48,11 +48,13 @@ export function connectNotifications(
     console.warn("SSE connection can only be established in browser environment");
     return false;
   }
+
   // Prevent duplicate connections for the same user
   if (isConnecting) {
     console.log("SSE connection already in progress, skipping...");
     return false;
   }
+
 
   if (eventSource && eventSource.readyState !== EventSource.CLOSED && currentUserId === userId) {
     console.log("SSE connection already exists for user:", userId, "state:", eventSource.readyState);
@@ -78,6 +80,9 @@ export function connectNotifications(
   const url = new URL(`${API_BASE_URL}/api/notifications/stream?deviceId=${deviceId}`);
 
   try {
+    eventSource = new EventSource(url.toString(), {
+      withCredentials: true
+    });
     eventSource = new EventSource(url.toString(), {
       withCredentials: true
     });
@@ -120,6 +125,7 @@ export function connectNotifications(
         connectionTimeoutId = null;
       }
 
+
       const now = Date.now();
       // Throttle error logging to prevent console spam
       if (now - lastErrorTime > ERROR_THROTTLE_MS) {
@@ -128,6 +134,7 @@ export function connectNotifications(
       }
       isConnecting = false;
     };
+
 
     return true;
   } catch (error) {
@@ -143,6 +150,7 @@ export function disconnectNotifications() {
     clearTimeout(connectionTimeoutId);
     connectionTimeoutId = null;
   }
+
 
   if (eventSource) {
     console.log("Closing SSE connection, readyState:", eventSource.readyState);

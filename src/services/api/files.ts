@@ -20,8 +20,8 @@ export const createFilesApi = (client: ApiClient) => ({
 
     const response = await fetch(`${client.baseURL}/api/files/upload`, {
       method: "POST",
-      headers: withAuthHeaders(client.getToken()),
       body: formData,
+      credentials: "include"
     })
 
     if (!response.ok) {
@@ -39,8 +39,8 @@ export const createFilesApi = (client: ApiClient) => ({
     try {
       const response = await fetch(`${client.baseURL}/api/files/upload`, {
         method: "POST",
-        headers: withAuthHeaders(client.getToken()),
         body: formData,
+        credentials: "include"
       })
 
       if (!response.ok) {
@@ -61,8 +61,8 @@ export const createFilesApi = (client: ApiClient) => ({
     try {
       const response = await fetch(`${client.baseURL}/api/novels/${id}/import-epub`, {
         method: "POST",
-        headers: withAuthHeaders(client.getToken()),
         body: formData,
+        credentials: "include"
       })
 
       if (!response.ok) {

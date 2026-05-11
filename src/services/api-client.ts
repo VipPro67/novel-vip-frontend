@@ -8,7 +8,7 @@ export type ApiError = Error & {
 }
 
 export class ApiClient {
-  constructor(public readonly baseURL: string) {}
+  constructor(public readonly baseURL: string) { }
 
   private isRefreshing = false
   private failedRequestsQueue: Array<{
@@ -59,12 +59,19 @@ export class ApiClient {
               }
             } catch (refreshError) {
               this.processQueue(refreshError)
+
               const fallbackMessage = "Authentication failed. Please login again."
-              const message = parsedBody?.message || fallbackMessage
-              const error: ApiError = Object.assign(new Error(message), {
+
+              const message =
+                response.status === 401
+                  ? fallbackMessage
+                  : parsedBody?.message ?? fallbackMessage
+
+              const error = Object.assign(new Error(message), {
                 status: response.status,
-                body: parsedBody as ApiResponse<unknown> | null,
-              })
+                body: parsedBody ?? null,
+              }) as ApiError
+
               throw error
             } finally {
               this.isRefreshing = false
@@ -95,11 +102,13 @@ export class ApiClient {
           fallbackMessage = "Server error. Please try again later."
         }
 
-        const message = parsedBody?.message || fallbackMessage
-        const error: ApiError = Object.assign(new Error(message), {
-          status: response.status,
-          body: parsedBody as ApiResponse<unknown> | null,
-        })
+        const error: ApiError = Object.assign(
+          new Error(parsedBody?.message ?? fallbackMessage),
+          {
+            status: response.status,
+            body: parsedBody as ApiResponse<unknown> | null,
+          }
+        )
         throw error
       }
 

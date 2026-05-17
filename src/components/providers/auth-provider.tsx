@@ -11,36 +11,34 @@ interface AuthContextType {
   login: (email: string, password: string) => Promise<AuthResponse>
   loginWithGoogle: (credential: string) => Promise<AuthResponse>
   register: (username: string, email: string, password: string) => Promise<ApiResponse<string>>
-  logout: () => void
+  logout: () => Promise<void>
   loading: boolean
   isAuthenticated: boolean
-  hasRole: (role: string[]) => boolean
+  hasRole: (roles: string[]) => boolean
   refreshUser: () => Promise<void>
 }
-type AuthResponse = ApiResponse<{
-  id?: string
-  username?: string
-  email?: string
-  roles?: string[]
-} | undefined>
+
+type AuthResponse = ApiResponse<
+  | {
+      id?: string
+      username?: string
+      email?: string
+      roles?: string[]
+    }
+  | undefined
+>
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined)
-
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null)
   const [loading, setLoading] = useState(true)
 
-  useEffect(() => {
-    // On mount, try fetching the user profile — the httpOnly accessToken cookie
-    // is sent automatically. If it fails/expires the 401 handler will try to refresh.
-    fetchUserProfile()
-  }, [])
-
   const buildUserFromAuthData = (payload?: AuthResponse["data"]): User | null => {
     if (!payload?.id || !payload?.username || !payload?.email) {
       return null
     }
+
     return {
       id: String(payload.id),
       username: String(payload.username),
@@ -55,6 +53,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
 
     const userData = buildUserFromAuthData(response.data)
+
     if (userData) {
       setUser(userData)
     }
@@ -62,19 +61,29 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const fetchUserProfile = async () => {
     try {
+      setLoading(true)
+
       const response = await api.getUserProfile()
-      if (response.success) {
+
+      if (response.success && response.data) {
         setUser((prevUser) => ({
           ...response.data,
-          roles: prevUser?.roles || response.data.roles || [],
+          roles: response.data.roles || prevUser?.roles || [],
         }))
+      } else {
+        setUser(null)
       }
     } catch (error) {
       console.error("Failed to fetch user profile:", error)
+      setUser(null)
     } finally {
       setLoading(false)
     }
   }
+
+  useEffect(() => {
+    fetchUserProfile()
+  }, [])
 
   const login = async (email: string, password: string): Promise<AuthResponse> => {
     try {
@@ -83,7 +92,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       return response
     } catch (error) {
       console.error("Login failed:", error)
+
       const apiError = error as ApiError | Error
+
       return {
         success: false,
         message: apiError instanceof Error ? apiError.message : "An error occurred",
@@ -100,7 +111,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       return response
     } catch (error) {
       console.error("Google login failed:", error)
+
       const apiError = error as ApiError | Error
+
       return {
         success: false,
         message: apiError instanceof Error ? apiError.message : "Unable to authenticate with Google",
@@ -110,34 +123,33 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   }
 
-  const register = async (username: string, email: string, password: string): Promise<ApiResponse<string>> => {
-    const response = await api.register(username, email, password)
-    return response
+  const register = async (
+    username: string,
+    email: string,
+    password: string,
+  ): Promise<ApiResponse<string>> => {
+    return api.register(username, email, password)
   }
 
   const logout = async () => {
     try {
-      // Ask the server to clear the httpOnly cookies
-      await api.request("/api/auth/signout", { method: "POST" })
-    } catch {
-      // ignore — clear local state regardless
-    }
-    if (typeof window !== "undefined") {
+      await api.request("/api/auth/signout", {
+        method: "POST",
+      })
+    } catch (error) {
+      console.error("Logout failed:", error)
+    } finally {
       window.localStorage.removeItem("readerSettings")
+      setUser(null)
     }
-    setUser(null)
   }
 
-  const hasRole = (role: string[]): boolean => {
+  const hasRole = (roles: string[]): boolean => {
     if (!user) {
       return false
     }
-    for (const r of role) {
-      if (user.roles.includes(r)) {
-        return true
-      }
-    }
-    return false
+
+    return roles.some((role) => user.roles.includes(role))
   }
 
   const value: AuthContextType = {
@@ -157,8 +169,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
 export function useAuth() {
   const context = useContext(AuthContext)
+
   if (context === undefined) {
     throw new Error("useAuth must be used within an AuthProvider")
   }
+
   return context
 }

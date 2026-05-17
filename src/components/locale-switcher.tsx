@@ -1,6 +1,6 @@
 "use client"
 
-import { useTransition } from "react"
+import { useEffect, useState, useTransition } from "react"
 import { useLocale, useTranslations } from "next-intl"
 import { usePathname, useRouter } from "@/navigation"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
@@ -17,6 +17,11 @@ export function LocaleSwitcher() {
   const pathname = usePathname()
   const t = useTranslations("LocaleSwitcher")
   const [isPending, startTransition] = useTransition()
+  const [mounted, setMounted] = useState(false)
+
+  useEffect(() => {
+    setMounted(true)
+  }, [])
 
   const handleLocaleChange = (nextLocale: Locale) => {
     if (nextLocale === locale) {
@@ -25,6 +30,10 @@ export function LocaleSwitcher() {
     startTransition(() => {
       router.replace(pathname, { locale: nextLocale })
     })
+  }
+
+  if (!mounted) {
+    return <div className="h-10 w-[130px]" aria-hidden="true" />
   }
 
   return (

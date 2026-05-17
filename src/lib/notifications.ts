@@ -83,9 +83,6 @@ export function connectNotifications(
     eventSource = new EventSource(url.toString(), {
       withCredentials: true
     });
-    eventSource = new EventSource(url.toString(), {
-      withCredentials: true
-    });
     // Set a timeout for the initial connection
     connectionTimeoutId = setTimeout(() => {
       if (isConnecting && eventSource?.readyState === EventSource.CONNECTING) {

@@ -1,10 +1,13 @@
 "use client"
 
 import { ApiResponse, User } from "@/models"
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
+import { buildUserFromAuthData, authQueryOptions } from "@/lib/query/options/auth"
+import { queryKeys } from "@/lib/query/keys"
 import { api } from "@/services/api"
 import type { ApiError } from "@/services/api-client"
 import type React from "react"
-import { createContext, useContext, useEffect, useState } from "react"
+import { createContext, useContext } from "react"
 
 interface AuthContextType {
   user: User | null
@@ -31,21 +34,8 @@ type AuthResponse = ApiResponse<
 const AuthContext = createContext<AuthContextType | undefined>(undefined)
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
-  const [user, setUser] = useState<User | null>(null)
-  const [loading, setLoading] = useState(true)
-
-  const buildUserFromAuthData = (payload?: AuthResponse["data"]): User | null => {
-    if (!payload?.id || !payload?.username || !payload?.email) {
-      return null
-    }
-
-    return {
-      id: String(payload.id),
-      username: String(payload.username),
-      email: String(payload.email),
-      roles: payload.roles || [],
-    }
-  }
+  const queryClient = useQueryClient()
+  const meQuery = useQuery(authQueryOptions.me())
 
   const applyAuthResponse = (response?: AuthResponse) => {
     if (!response?.success || !response.data) {
@@ -55,40 +45,25 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const userData = buildUserFromAuthData(response.data)
 
     if (userData) {
-      setUser(userData)
+      queryClient.setQueryData(queryKeys.auth.me(), userData)
     }
   }
 
-  const fetchUserProfile = async () => {
-    try {
-      setLoading(true)
+  const loginMutation = useMutation({
+    mutationFn: ({ email, password }: { email: string; password: string }) => api.login(email, password),
+    onSuccess: applyAuthResponse,
+  })
 
-      const response = await api.getUserProfile()
+  const googleLoginMutation = useMutation({
+    mutationFn: ({ credential }: { credential: string }) => api.loginWithGoogle(credential),
+    onSuccess: applyAuthResponse,
+  })
 
-      if (response.success && response.data) {
-        setUser((prevUser) => ({
-          ...response.data,
-          roles: response.data.roles || prevUser?.roles || [],
-        }))
-      } else {
-        setUser(null)
-      }
-    } catch (error) {
-      console.error("Failed to fetch user profile:", error)
-      setUser(null)
-    } finally {
-      setLoading(false)
-    }
-  }
-
-  useEffect(() => {
-    fetchUserProfile()
-  }, [])
+  const user = meQuery.data ?? null
 
   const login = async (email: string, password: string): Promise<AuthResponse> => {
     try {
-      const response = await api.login(email, password)
-      applyAuthResponse(response)
+      const response = await loginMutation.mutateAsync({ email, password })
       return response
     } catch (error) {
       console.error("Login failed:", error)
@@ -106,8 +81,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const loginWithGoogle = async (credential: string): Promise<AuthResponse> => {
     try {
-      const response = await api.loginWithGoogle(credential)
-      applyAuthResponse(response)
+      const response = await googleLoginMutation.mutateAsync({ credential })
       return response
     } catch (error) {
       console.error("Google login failed:", error)
@@ -140,7 +114,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       console.error("Logout failed:", error)
     } finally {
       window.localStorage.removeItem("readerSettings")
-      setUser(null)
+      queryClient.setQueryData(queryKeys.auth.me(), null)
+      queryClient.removeQueries({ queryKey: queryKeys.readerSettings.all })
     }
   }
 
@@ -158,10 +133,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     loginWithGoogle,
     register,
     logout,
-    loading,
+    loading: meQuery.isPending && meQuery.data === undefined,
     isAuthenticated: !!user,
     hasRole,
-    refreshUser: fetchUserProfile,
+    refreshUser: async () => {
+      await queryClient.invalidateQueries({ queryKey: queryKeys.auth.all })
+      await queryClient.refetchQueries({ queryKey: queryKeys.auth.me(), exact: true })
+    },
   }
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>

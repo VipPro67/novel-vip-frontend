@@ -5,6 +5,7 @@ import { NextIntlClientProvider } from "next-intl"
 import { getMessages, setRequestLocale } from "next-intl/server"
 import { locales, type Locale, defaultLocale } from "@/i18n/config"
 import { ThemeProvider } from "@/components/providers/theme-provider"
+import { QueryProvider } from "@/components/providers/query-provider"
 import { AuthProvider } from "@/components/providers/auth-provider"
 import { ReaderSettingsProvider } from "@/components/providers/reader-settings-provider"
 import { LoginModal } from "@/components/auth/login-modal"
@@ -38,20 +39,22 @@ export default async function LocaleLayout({ children, params }: LocaleLayoutPro
 
   const content = (
     <NextIntlClientProvider locale={locale} messages={messages}>
-      <ThemeProvider attribute="class" defaultTheme="system" enableSystem disableTransitionOnChange>
-        <AuthProvider>
-          <ReaderSettingsProvider>
-            <LoginModal />
-            <RegisterModal />
-            <main>
-              <Header />
-              {children}
-            </main>
-            <ChatWidget />
-            <Toaster />
-          </ReaderSettingsProvider>
-        </AuthProvider>
-      </ThemeProvider>
+      <QueryProvider>
+        <ThemeProvider attribute="class" defaultTheme="system" enableSystem disableTransitionOnChange>
+          <AuthProvider>
+            <ReaderSettingsProvider>
+              <LoginModal />
+              <RegisterModal />
+              <main>
+                <Header />
+                {children}
+              </main>
+              <ChatWidget />
+              <Toaster />
+            </ReaderSettingsProvider>
+          </AuthProvider>
+        </ThemeProvider>
+      </QueryProvider>
     </NextIntlClientProvider>
   )
 

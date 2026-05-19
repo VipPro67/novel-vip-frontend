@@ -2,6 +2,7 @@
 
 import type { ChangeEvent, FormEvent } from "react";
 import { useEffect, useMemo, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { Bell, Palette, Loader2, RefreshCw } from "lucide-react";
 
 import { AuthGuard } from "@/components/auth/auth-guard";
@@ -27,7 +28,7 @@ import {
 import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useToast } from "@/hooks/use-toast";
-import { api } from "@/services/api";
+import { readerSettingsQueryOptions } from "@/lib/query/options/reader-settings";
 import { useTranslations } from "next-intl";
 import { ReaderSettings } from "@/models";
 
@@ -138,51 +139,17 @@ function AppearanceSettingsForm() {
   const { settings, loading, saving, error, updateSettings, refreshSettings } =
     useReaderSettings();
   const [formValues, setFormValues] = useState<ReaderSettings | null>(null);
-  const [fontOptions, setFontOptions] = useState<string[]>([]);
-  const [themeOptions, setThemeOptions] = useState<string[]>([]);
-  const [optionsLoading, setOptionsLoading] = useState(false);
+  const fontOptionsQuery = useQuery(readerSettingsQueryOptions.fonts());
+  const themeOptionsQuery = useQuery(readerSettingsQueryOptions.themes());
+  const fontOptions = fontOptionsQuery.data ?? [];
+  const themeOptions = themeOptionsQuery.data ?? [];
+  const optionsLoading = fontOptionsQuery.isPending || themeOptionsQuery.isPending;
 
   useEffect(() => {
     if (settings) {
       setFormValues(settings);
     }
   }, [settings]);
-
-  useEffect(() => {
-    let isMounted = true;
-
-    const loadOptions = async () => {
-      try {
-        setOptionsLoading(true);
-        const [fontsResponse, themesResponse] = await Promise.all([
-          api.getFontOptions(),
-          api.getThemeOptions(),
-        ]);
-
-        if (!isMounted) {
-          return;
-        }
-
-        if (fontsResponse.success) {
-          setFontOptions(fontsResponse.data);
-        }
-        if (themesResponse.success) {
-          setThemeOptions(themesResponse.data);
-        }
-      } catch (err) {
-        console.error("Failed to load appearance options", err);
-      } finally {
-        if (isMounted) {
-          setOptionsLoading(false);
-        }
-      }
-    };
-
-    loadOptions();
-    return () => {
-      isMounted = false;
-    };
-  }, []);
 
   const handleIntegerChange =
     (key: IntegerSettingKey) => (event: ChangeEvent<HTMLInputElement>) => {

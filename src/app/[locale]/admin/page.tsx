@@ -1,11 +1,11 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useQuery } from "@tanstack/react-query"
 import { Users, BookOpen, FileText, TrendingUp, Eye, Star, MessageCircle, Bell, AlertCircle, PlayCircle, RefreshCw } from "lucide-react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { AuthGuard } from "@/components/auth/auth-guard"
 import { useAuth } from "@/components/providers/auth-provider"
-import { api } from "@/services/api"
+import { adminQueryOptions } from "@/lib/query/options/admin"
 import { Link } from "@/navigation"
 import { Button } from "@/components/ui/button"
 
@@ -19,7 +19,8 @@ export default function AdminDashboard() {
 }
 
 function AdminDashboardContent() {
-  const [stats, setStats] = useState(() => ({
+  const statsQuery = useQuery(adminQueryOptions.dashboard())
+  const stats = statsQuery.data ?? {
     totalUsers: 0,
     newUsersToday: 0,
     totalNovels: 0,
@@ -32,25 +33,8 @@ function AdminDashboardContent() {
     avgRating: 0,
     commentsToday: 0,
     commentsGrowth: 0,
-  }))
-  const [loading, setLoading] = useState(true)
-
-  useEffect(() => {
-    fetchDashboardStats()
-  }, [])
-
-  const fetchDashboardStats = async () => {
-    try {
-      const response = await api.getDashboardStats()
-      if (response.success && response.data) {
-        setStats(response.data)
-      }
-    } catch (error) {
-      console.error("Failed to fetch dashboard stats", error)
-    } finally {
-      setLoading(false)
-    }
   }
+  const loading = statsQuery.isPending
 
   return (
     <div className="min-h-screen bg-background">

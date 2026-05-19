@@ -1,14 +1,13 @@
 "use client"
 
-import { useEffect, useState, useCallback } from "react"
+import { useQuery } from "@tanstack/react-query"
 import { useTranslations } from "next-intl"
 import { ArrowRight, Clock } from "lucide-react"
 import { Link } from "@/navigation"
 import { Button } from "@/components/ui/button"
 import { ReadingHistoryCard } from "@/components/novel/reading-history-card"
 import { useAuth } from "@/components/providers/auth-provider"
-import { api } from "@/services/api"
-import { ReadingHistory } from "@/models"
+import { novelQueryOptions } from "@/lib/query/options/novels"
 
 function RecentlyReadSkeleton() {
   return (
@@ -27,40 +26,18 @@ function RecentlyReadSkeleton() {
 export function RecentlyReadSection() {
   const t = useTranslations("Home")
   const { isAuthenticated, loading: authLoading } = useAuth()
-  const [recentlyRead, setRecentlyRead] = useState<ReadingHistory[]>([])
-  const [loading, setLoading] = useState(true)
-  const [initialized, setInitialized] = useState(false)
-
-  const fetchHistory = useCallback(() => {
-    if (!isAuthenticated) {
-      setLoading(false)
-      setInitialized(true)
-      return
-    }
-
-    api.getReadingHistory({
+  const readingHistoryQuery = useQuery({
+    ...novelQueryOptions.readingHistory({
       page: 0,
       size: 4,
       sortBy: "updatedAt",
       sortDir: "desc",
-    })
-      .then((res) => {
-        if (res.success) {
-          setRecentlyRead(res.data.content)
-        }
-      })
-      .finally(() => {
-        setLoading(false)
-        setInitialized(true)
-      })
-  }, [isAuthenticated])
+    }),
+    enabled: !authLoading && isAuthenticated,
+  })
 
-  useEffect(() => {
-    // Wait for auth to be determined before fetching
-    if (!authLoading) {
-      fetchHistory()
-    }
-  }, [fetchHistory, authLoading])
+  const recentlyRead = readingHistoryQuery.data?.content ?? []
+  const loading = readingHistoryQuery.isPending
 
   if (authLoading) {
     return (

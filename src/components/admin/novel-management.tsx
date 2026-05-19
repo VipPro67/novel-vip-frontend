@@ -1,6 +1,7 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useDeferredValue, useEffect, useMemo, useState } from "react"
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { useRouter } from "@/navigation"
 import { Plus, Search, Filter, MoreHorizontal, Edit, Trash2, Eye, BookOpen, Loader2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
@@ -21,101 +22,88 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog"
 import { useToast } from "@/hooks/use-toast"
+import { adminQueryOptions } from "@/lib/query/options/admin"
+import { unwrapApiResponse } from "@/lib/query/unwrap-api"
 import { api } from "@/services/api"
 import { useTranslations } from "next-intl"
-import { Novel, PageResponse } from "@/models"
+import { Novel } from "@/models"
 
 export function NovelManagement() {
   const t = useTranslations("AdminNovels")
   const router = useRouter()
+  const queryClient = useQueryClient()
   const { toast } = useToast()
 
-  const [novels, setNovels] = useState<Novel[]>([])
-  const [loading, setLoading] = useState(true)
   const [searchTerm, setSearchTerm] = useState("")
   const [statusFilter, setStatusFilter] = useState<string>("all")
   const [currentPage, setCurrentPage] = useState(0)
-  const [totalPages, setTotalPages] = useState(0)
-  const [totalElements, setTotalElements] = useState(0)
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false)
   const [novelToDelete, setNovelToDelete] = useState<Novel | null>(null)
-  const [deleting, setDeleting] = useState(false)
+  const deferredSearchTerm = useDeferredValue(searchTerm)
+  const novelsQuery = useQuery(
+    adminQueryOptions.novels({
+      page: currentPage,
+      size: 10,
+      sortBy: "updatedAt",
+      sortDir: "desc",
+      search: deferredSearchTerm.trim() || undefined,
+    }),
+  )
 
-  // Stats
-  const [stats, setStats] = useState({
-    total: 0,
-    published: 0,
-    draft: 0,
-    averageRating: 0,
+  const deleteNovelMutation = useMutation({
+    mutationFn: async (novelId: string) => unwrapApiResponse(await api.deleteNovel(novelId)),
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ["admin", "novels"] })
+      toast({
+        title: t("toasts.deleteSuccessTitle"),
+        description: t("toasts.deleteSuccessDesc"),
+      })
+    },
   })
 
   useEffect(() => {
-    fetchNovels()
-  }, [currentPage, searchTerm, statusFilter])
-
-  const fetchNovels = async () => {
-    setLoading(true)
-    try {
-      const params: any = {
-        page: currentPage,
-        size: 10,
-        sortBy: "updatedAt",
-        sortDir: "desc",
-      }
-
-      if (searchTerm.trim()) {
-        params.search = searchTerm.trim()
-      }
-
-      const response = await api.getNovels(params)
-
-      if (response.success) {
-        const data = response.data as PageResponse<Novel>
-        let filteredNovels = data.content
-
-        // Apply status filter
-        if (statusFilter !== "all") {
-          filteredNovels = data.content.filter((novel) => novel.status.toLowerCase() === statusFilter)
-        }
-
-        setNovels(filteredNovels)
-        setTotalPages(data.totalPages)
-        setTotalElements(data.totalElements)
-
-        // Calculate stats
-        const total = data.totalElements
-        const published = data.content.filter((n) => n.status === "PUBLISHED").length
-        const draft = data.content.filter((n) => n.status === "DRAFT").length
-        const averageRating = data.content.reduce((acc, n) => acc + n.rating, 0) / data.content.length || 0
-
-        setStats({ total, published, draft, averageRating })
-      }
-    } catch (error) {
-      console.error("Failed to fetch novels:", error)
+    if (novelsQuery.error) {
+      console.error("Failed to fetch novels:", novelsQuery.error)
       toast({
         title: t("toasts.errorLoadTitle"),
         description: t("toasts.errorLoadDesc"),
         variant: "destructive",
       })
-    } finally {
-      setLoading(false)
     }
-  }
+  }, [novelsQuery.error, t, toast])
+
+  const rawNovels = novelsQuery.data?.content ?? []
+  const novels = useMemo(() => {
+    if (statusFilter === "all") {
+      return rawNovels
+    }
+
+    return rawNovels.filter((novel) => novel.status.toLowerCase() === statusFilter)
+  }, [rawNovels, statusFilter])
+
+  const stats = useMemo(() => {
+    const total = novelsQuery.data?.totalElements ?? 0
+    const published = rawNovels.filter((novel) => novel.status === "PUBLISHED").length
+    const draft = rawNovels.filter((novel) => novel.status === "DRAFT").length
+    const averageRating = rawNovels.reduce((acc, novel) => acc + novel.rating, 0) / rawNovels.length || 0
+
+    return {
+      total,
+      published,
+      draft,
+      averageRating,
+    }
+  }, [novelsQuery.data?.totalElements, rawNovels])
+
+  const totalPages = novelsQuery.data?.totalPages ?? 0
+  const loading = novelsQuery.isPending
+  const deleting = deleteNovelMutation.isPending
 
   const handleDeleteNovel = async () => {
     if (!novelToDelete) return
 
-    setDeleting(true)
     try {
-      const response = await api.deleteNovel(novelToDelete.id)
-
-      if (response.success) {
-        toast({
-          title: t("toasts.deleteSuccessTitle"),
-          description: t("toasts.deleteSuccessDesc"),
-        })
-        fetchNovels() // Refresh the list
-      }
+      await deleteNovelMutation.mutateAsync(novelToDelete.id)
     } catch (error) {
       console.error("Failed to delete novel:", error)
       toast({
@@ -124,7 +112,6 @@ export function NovelManagement() {
         variant: "destructive",
       })
     } finally {
-      setDeleting(false)
       setDeleteDialogOpen(false)
       setNovelToDelete(null)
     }

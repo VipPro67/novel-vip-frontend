@@ -1,65 +1,75 @@
 "use client"
 
-import { useEffect, useState, useCallback } from "react"
-import { api } from "@/services/api"
+import { useCallback, useEffect, useState } from "react"
+import { useQuery, useQueryClient } from "@tanstack/react-query"
+import { type Notification } from "@/models"
 import { connectNotifications, disconnectNotifications } from "@/lib/notifications"
 import { useAuth } from "@/components/providers/auth-provider"
+import { notificationsQueryOptions } from "@/lib/query/options/notifications"
+import { queryKeys } from "@/lib/query/keys"
 
 export function useNotifications() {
+  const queryClient = useQueryClient()
   const { user, isAuthenticated } = useAuth()
-  const [unreadCount, setUnreadCount] = useState(0)
   const [notifications, setNotifications] = useState<Notification[]>([])
 
-  const refreshUnreadCount = useCallback(() => {
-    api.getUnreadNotificationCount()
-      .then((res) => {
-        if (res.success) setUnreadCount(res.data)
-      })
-      .catch((err) => console.error("Failed to fetch unread notifications", err))
-  }, []) // Empty deps - function doesn't depend on anything
+  const unreadCountQuery = useQuery({
+    ...notificationsQueryOptions.unreadCount(),
+    enabled: isAuthenticated && Boolean(user?.id),
+  })
+
+  const refreshUnreadCount = useCallback(async () => {
+    if (!isAuthenticated || !user) {
+      queryClient.setQueryData(queryKeys.notifications.unreadCount(), 0)
+      return 0
+    }
+
+    const result = await unreadCountQuery.refetch()
+    return result.data ?? 0
+  }, [isAuthenticated, queryClient, unreadCountQuery, user])
 
   useEffect(() => {
     if (!isAuthenticated || !user) {
-      setUnreadCount(0)
       setNotifications([])
+      queryClient.setQueryData(queryKeys.notifications.unreadCount(), 0)
       disconnectNotifications()
       return
     }
 
-    console.log("[useNotifications] Effect triggered for user:", user.id)
     let isMounted = true
-    let connectionTimeout: NodeJS.Timeout
-
-    // 🔹 Fetch unread count immediately on login/page load
-    refreshUnreadCount()
-
-    // 🔹 Delay SSE connection to prevent blocking page load
-    // Connection happens after a delay to allow page to render first
-    connectionTimeout = setTimeout(() => {
+    const connectionTimeout = setTimeout(() => {
       if (!isMounted) {
-        console.log("[useNotifications] Component unmounted before connection, skipping...")
         return
       }
-      
-      console.log("[useNotifications] Attempting to connect SSE for user:", user.id)
-      // Connect SSE for live notifications (non-blocking)
-      const connected = connectNotifications(user.id, (notification) => {
-        if (!isMounted) return
+
+      connectNotifications(user.id, (notification) => {
+        if (!isMounted) {
+          return
+        }
+
         setNotifications((prev) => [notification, ...prev])
         if (!notification.read) {
-          setUnreadCount((prev) => prev + 1)
+          queryClient.setQueryData(queryKeys.notifications.unreadCount(), (prev?: number) => (prev ?? 0) + 1)
         }
       })
-      console.log("[useNotifications] Connection attempt result:", connected)
-    }, 2000) // 2 second delay to allow page to load first
+    }, 2000)
 
     return () => {
-      console.log("[useNotifications] Cleanup: disconnecting for user:", user.id)
       isMounted = false
       clearTimeout(connectionTimeout)
       disconnectNotifications()
     }
-  }, [isAuthenticated, user?.id]) // Removed refreshUnreadCount from deps
+  }, [isAuthenticated, queryClient, user])
 
-  return { unreadCount, notifications, setNotifications, refreshUnreadCount, setUnreadCount }
+  return {
+    unreadCount: isAuthenticated ? unreadCountQuery.data ?? 0 : 0,
+    notifications,
+    setNotifications,
+    refreshUnreadCount,
+    setUnreadCount: (value: number | ((previous: number) => number)) => {
+      queryClient.setQueryData(queryKeys.notifications.unreadCount(), (previous?: number) =>
+        typeof value === "function" ? value(previous ?? 0) : value,
+      )
+    },
+  }
 }

@@ -2,6 +2,7 @@
 
 import type React from "react"
 import { useState } from "react"
+import { useForm } from "@tanstack/react-form"
 import { useRouter } from "@/navigation"
 import { Eye, EyeOff, BookOpen } from "lucide-react"
 import { GoogleLogin, GoogleOAuthProvider, type CredentialResponse } from "@react-oauth/google"
@@ -12,25 +13,40 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { useToast } from "@/hooks/use-toast"
 import { useAuth } from "@/components/providers/auth-provider"
 import { useAuthModals } from "@/hooks/use-auth-modals"
+import { loginSchema } from "@/lib/validation/auth"
 
 export function LoginModal() {
-  const [email, setEmail] = useState("")
-  const [password, setPassword] = useState("")
   const [showPassword, setShowPassword] = useState(false)
-  const [loading, setLoading] = useState(false)
   const { login, loginWithGoogle } = useAuth()
   const { toast } = useToast()
   const router = useRouter()
   const { loginOpen, closeLogin, switchToRegister } = useAuthModals()
   const googleEnabled = Boolean(process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID)
 
+  const form = useForm({
+    defaultValues: {
+      email: "",
+      password: "",
+    },
+    validators: {
+      onSubmit: ({ value }) => {
+        const result = loginSchema.safeParse(value)
+        if (result.success) {
+          return null
+        }
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault()
-    setLoading(true)
-
-    try {
-      const response = await login(email, password)
+        const flattened = result.error.flatten()
+        return {
+          form: flattened.formErrors[0],
+          fields: {
+            email: flattened.fieldErrors.email?.[0],
+            password: flattened.fieldErrors.password?.[0],
+          },
+        }
+      },
+    },
+    onSubmit: async ({ value }) => {
+      const response = await login(value.email, value.password)
 
       if (response?.success) {
         toast({
@@ -39,25 +55,17 @@ export function LoginModal() {
         })
         closeLogin()
         router.refresh()
-      } else {
-        console.error("Login failed:", response?.message)
-        toast({
-          title: "Login failed",
-          description: response?.message || "Invalid email or password",
-          variant: "destructive",
-        })
+        return
       }
-    } catch (error: any) {
-      const message = error?.response?.data?.message || error.message || "An error occurred"
+
+      console.error("Login failed:", response?.message)
       toast({
         title: "Login failed",
-        description: message,
+        description: response?.message || "Invalid email or password",
         variant: "destructive",
       })
-    } finally {
-      setLoading(false)
-    }
-  }
+    },
+  })
 
   const handleGoogleSuccess = async (credentialResponse: CredentialResponse) => {
     if (!credentialResponse.credential) {
@@ -69,7 +77,6 @@ export function LoginModal() {
       return
     }
 
-    setLoading(true)
     try {
       const response = await loginWithGoogle(credentialResponse.credential)
       if (response?.success) {
@@ -86,8 +93,6 @@ export function LoginModal() {
     } catch (error: any) {
       const message = error?.message || "Unable to authenticate with Google"
       toast({ title: "Google login failed", description: message, variant: "destructive" })
-    } finally {
-      setLoading(false)
     }
   }
 
@@ -111,45 +116,80 @@ export function LoginModal() {
           </div>
         </DialogHeader>
 
-        <form onSubmit={handleSubmit} className="space-y-4">
-          <div className="space-y-2">
-            <Label htmlFor="email">Email</Label>
-            <Input
-              id="email"
-              type="email"
-              placeholder="Enter your email"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              required
-            />
-          </div>
+        <form
+          onSubmit={(event) => {
+            event.preventDefault()
+            event.stopPropagation()
+            void form.handleSubmit()
+          }}
+          className="space-y-4"
+        >
+          <form.Field
+            name="email"
+            children={(field) => (
+              <div className="space-y-2">
+                <Label htmlFor={field.name}>Email</Label>
+                <Input
+                  id={field.name}
+                  name={field.name}
+                  type="email"
+                  placeholder="Enter your email"
+                  value={field.state.value}
+                  onBlur={field.handleBlur}
+                  onChange={(event) => field.handleChange(event.target.value)}
+                  required
+                />
+                {!field.state.meta.isValid ? (
+                  <p className="text-sm text-destructive">{field.state.meta.errors.join(", ")}</p>
+                ) : null}
+              </div>
+            )}
+          />
 
-          <div className="space-y-2">
-            <Label htmlFor="password">Password</Label>
-            <div className="relative">
-              <Input
-                id="password"
-                type={showPassword ? "text" : "password"}
-                placeholder="Enter your password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                required
-              />
-              <Button
-                type="button"
-                variant="ghost"
-                size="icon"
-                className="absolute right-0 top-0 h-full px-3 py-2 hover:bg-transparent"
-                onClick={() => setShowPassword(!showPassword)}
-              >
-                {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-              </Button>
-            </div>
-          </div>
+          <form.Field
+            name="password"
+            children={(field) => (
+              <div className="space-y-2">
+                <Label htmlFor={field.name}>Password</Label>
+                <div className="relative">
+                  <Input
+                    id={field.name}
+                    name={field.name}
+                    type={showPassword ? "text" : "password"}
+                    placeholder="Enter your password"
+                    value={field.state.value}
+                    onBlur={field.handleBlur}
+                    onChange={(event) => field.handleChange(event.target.value)}
+                    required
+                  />
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    className="absolute right-0 top-0 h-full px-3 py-2 hover:bg-transparent"
+                    onClick={() => setShowPassword(!showPassword)}
+                  >
+                    {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                  </Button>
+                </div>
+                {!field.state.meta.isValid ? (
+                  <p className="text-sm text-destructive">{field.state.meta.errors.join(", ")}</p>
+                ) : null}
+              </div>
+            )}
+          />
 
-          <Button type="submit" className="w-full" disabled={loading}>
-            {loading ? "Signing in..." : "Sign In"}
-          </Button>
+          <form.Subscribe
+            selector={(state) => [state.canSubmit, state.isSubmitting, state.errorMap]}
+            children={([canSubmit, isSubmitting, errorMap]) => (
+              <>
+                {errorMap.onSubmit ? <p className="text-sm text-destructive">{String(errorMap.onSubmit)}</p> : null}
+                <Button type="submit" className="w-full" disabled={!canSubmit || isSubmitting}>
+                  {isSubmitting ? "Signing in..." : "Sign In"}
+                </Button>
+              </>
+            )}
+          />
         </form>
 
         {googleEnabled && (
@@ -162,7 +202,7 @@ export function LoginModal() {
                 <span className="bg-background px-2 text-muted-foreground">Or continue with</span>
               </div>
             </div>
-            <div className={loading ? "pointer-events-none opacity-60" : ""}>
+            <div className={form.state.isSubmitting ? "pointer-events-none opacity-60" : ""}>
               <div className="flex justify-center">
                 <GoogleOAuthProvider clientId={process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID}>
                   <GoogleLogin onSuccess={handleGoogleSuccess} onError={handleGoogleError} useOneTap={false} width="100%" />
@@ -174,7 +214,7 @@ export function LoginModal() {
 
         <div className="text-center text-sm">
           <span className="text-muted-foreground">Don't have an account? </span>
-          <button onClick={switchToRegister} className="text-primary hover:underline font-medium">
+          <button type="button" onClick={switchToRegister} className="text-primary hover:underline font-medium">
             Sign up
           </button>
         </div>

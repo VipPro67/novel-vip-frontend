@@ -3,6 +3,7 @@
 import type React from "react";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { useTranslations } from "next-intl";
 import { useRouter, useSearchParams } from "@/navigation";
 import { Search, Grid, List, X } from "lucide-react";
@@ -19,8 +20,9 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Header } from "@/components/layout/header";
 import { NovelCard } from "@/components/novel/novel-card";
-import { api, Tag, type Category, type Genre, type Novel } from "@/services/api";
 import { Pagination } from "@/components/ui/pagination";
+import { novelQueryOptions } from "@/lib/query/options/novels";
+import type { Category, Genre, Novel, Tag } from "@/models";
 
 type FilterKey = "keyword" | "title" | "author" | "category" | "genre" | "tag";
 type SearchFilters = Partial<Record<FilterKey, string>>;
@@ -56,11 +58,7 @@ const cleanFilters = (filters: SearchFilters): SearchFilters => {
 
 export default function SearchPage() {
   const t = useTranslations("Search")
-  const [novels, setNovels] = useState<Novel[]>([]);
-  const [loading, setLoading] = useState(false);
   const [currentPage, setCurrentPage] = useState(0);
-  const [totalPages, setTotalPages] = useState(0);
-  const [totalResults, setTotalResults] = useState(0);
   const [sortBy, setSortBy] = useState("updatedAt");
   const [sortDir, setSortDir] = useState("desc");
   const [viewMode, setViewMode] = useState<"grid" | "list">("grid");
@@ -71,14 +69,46 @@ export default function SearchPage() {
   const [selectedGenre, setSelectedGenre] = useState("all");
 
   const [selectedTag, setSelectedTag] = useState("all");
-  const [categories, setCategories] = useState<Category[]>([]);
-  const [genres, setGenres] = useState<Genre[]>([]);
-  const [tags, setTags] = useState<Tag[]>([]);
   const [lastSubmittedFilters, setLastSubmittedFilters] =
     useState<SearchFilters | null>(null);
 
   const searchParams = useSearchParams();
   const router = useRouter();
+  const categoriesQuery = useQuery(novelQueryOptions.categories());
+  const genresQuery = useQuery(novelQueryOptions.genres());
+  const tagsQuery = useQuery(novelQueryOptions.tags());
+
+  const searchRequest = useMemo(() => {
+    if (!lastSubmittedFilters) {
+      return null;
+    }
+
+    const cleaned = cleanFilters(lastSubmittedFilters);
+    if (Object.keys(cleaned).length === 0) {
+      return null;
+    }
+
+    return {
+      ...cleaned,
+      page: currentPage,
+      size: 20,
+      sortBy,
+      sortDir,
+    };
+  }, [currentPage, lastSubmittedFilters, sortBy, sortDir]);
+
+  const searchResultsQuery = useQuery({
+    ...novelQueryOptions.search(searchRequest ?? {}),
+    enabled: Boolean(searchRequest),
+  });
+
+  const categories = categoriesQuery.data ?? [];
+  const genres = genresQuery.data ?? [];
+  const tags = tagsQuery.data ?? [];
+  const novels = searchResultsQuery.data?.content ?? [];
+  const totalPages = searchResultsQuery.data?.totalPages ?? 0;
+  const totalResults = searchResultsQuery.data?.totalElements ?? 0;
+  const loading = searchResultsQuery.isFetching;
 
   const updateURL = useCallback(
     (
@@ -102,83 +132,6 @@ export default function SearchPage() {
     },
     [router]
   );
-
-  const performSearch = useCallback(
-    async (
-      filters: SearchFilters,
-      page = 0,
-      sortOverride?: { sortBy: string; sortDir: string }
-    ) => {
-      const cleaned = cleanFilters(filters);
-
-      if (Object.keys(cleaned).length === 0) {
-        setNovels([]);
-        setTotalPages(0);
-        setTotalResults(0);
-        setCurrentPage(0);
-        return;
-      }
-
-      setLoading(true);
-      try {
-        const response = await api.searchNovels({
-          ...cleaned,
-          page,
-          size: 20,
-          sortBy: sortOverride?.sortBy ?? sortBy,
-          sortDir: sortOverride?.sortDir ?? sortDir,
-        });
-
-        if (response.success) {
-          setNovels(response.data.content);
-          setTotalPages(response.data.totalPages);
-          setTotalResults(response.data.totalElements);
-          setCurrentPage(response.data.pageNumber ?? page);
-        } else {
-          setNovels([]);
-          setTotalPages(0);
-          setTotalResults(0);
-          setCurrentPage(page);
-        }
-      } catch (error) {
-        console.error("Failed to search novels:", error);
-        setNovels([]);
-        setTotalPages(0);
-        setTotalResults(0);
-        setCurrentPage(page);
-      } finally {
-        setLoading(false);
-      }
-    },
-    [sortBy, sortDir]
-  );
-
-  useEffect(() => {
-    const fetchTaxonomies = async () => {
-      try {
-        const [categoryResponse, genreResponse, tagResponse] =
-          await Promise.all([
-            api.getCategories(),
-            api.getGenres(),
-            api.getTags(),
-          ]);
-
-        if (categoryResponse.success) {
-          setCategories(categoryResponse.data);
-        }
-        if (genreResponse.success) {
-          setGenres(genreResponse.data);
-        }
-        if (tagResponse.success) {
-          setTags(tagResponse.data);
-        }
-      } catch (error) {
-        console.error("Failed to load filter data:", error);
-      }
-    };
-
-    void fetchTaxonomies();
-  }, []);
 
   useEffect(() => {
     const keyword = searchParams.get("keyword") || "";
@@ -214,9 +167,8 @@ export default function SearchPage() {
 
     if (Object.keys(initialFilters).length > 0) {
       setLastSubmittedFilters(initialFilters);
-      void performSearch(initialFilters, page, sort);
     }
-  }, [searchParams, performSearch]);
+  }, [searchParams]);
 
   const handleSearch = (e: React.FormEvent) => {
     e.preventDefault();
@@ -231,9 +183,6 @@ export default function SearchPage() {
     const cleaned = cleanFilters(filters);
     if (Object.keys(cleaned).length === 0) {
       setLastSubmittedFilters(null);
-      setNovels([]);
-      setTotalPages(0);
-      setTotalResults(0);
       setCurrentPage(0);
       updateURL({}, 0, { sortBy, sortDir });
       return;
@@ -241,7 +190,6 @@ export default function SearchPage() {
     setLastSubmittedFilters(cleaned);
     setCurrentPage(0);
     updateURL(cleaned, 0, { sortBy, sortDir });
-    void performSearch(cleaned, 0);
   };
 
   const handleSortChange = (value: string) => {
@@ -251,10 +199,6 @@ export default function SearchPage() {
     setCurrentPage(0);
     if (lastSubmittedFilters) {
       updateURL(lastSubmittedFilters, 0, { sortBy: field, sortDir: direction });
-      void performSearch(lastSubmittedFilters, 0, {
-        sortBy: field,
-        sortDir: direction,
-      });
     }
   };
 
@@ -262,7 +206,6 @@ export default function SearchPage() {
     setCurrentPage(page);
     if (lastSubmittedFilters) {
       updateURL(lastSubmittedFilters, page, { sortBy, sortDir });
-      void performSearch(lastSubmittedFilters, page);
     }
   };
 
@@ -301,30 +244,26 @@ export default function SearchPage() {
     const cleaned = cleanFilters(updatedFilters);
     if (Object.keys(cleaned).length === 0) {
       setLastSubmittedFilters(null);
-      setNovels([]);
-      setTotalPages(0);
-      setTotalResults(0);
       setCurrentPage(0);
+      updateURL({}, 0, { sortBy, sortDir });
       return;
     }
 
     setLastSubmittedFilters(cleaned);
     setCurrentPage(0);
-    void performSearch(cleaned, 0);
+    updateURL(cleaned, 0, { sortBy, sortDir });
   };
 
   const clearAllFilters = () => {
     setSearchQuery("");
     setTitleFilter("");
     setAuthorFilter("");
-    setSelectedCategory("");
-    setSelectedGenre("");
-    setSelectedTag("");
+    setSelectedCategory("all");
+    setSelectedGenre("all");
+    setSelectedTag("all");
     setLastSubmittedFilters(null);
-    setNovels([]);
-    setTotalPages(0);
-    setTotalResults(0);
     setCurrentPage(0);
+    updateURL({}, 0, { sortBy, sortDir });
   };
 
     return (

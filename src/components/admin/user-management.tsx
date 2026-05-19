@@ -1,6 +1,8 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useCallback, useEffect, useMemo, useState } from "react"
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
+import { flexRender, type ColumnDef } from "@tanstack/react-table"
 import { MoreHorizontal, Shield, Trash2, Search } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -24,99 +26,175 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog"
 import { Checkbox } from "@/components/ui/checkbox"
-import { useToast } from "@/hooks/use-toast"
-import { api, type User } from "@/services/api"
-// Import the new Pagination component
 import { Pagination } from "@/components/ui/pagination"
+import { useToast } from "@/hooks/use-toast"
+import { useServerTable } from "@/hooks/use-server-table"
+import { adminQueryOptions } from "@/lib/query/options/admin"
+import { unwrapApiResponse } from "@/lib/query/unwrap-api"
+import { api, type User } from "@/services/api"
 
-// Import the pagination hook
-import { usePagination } from "@/hooks/use-pagination"
+type RoleInput = string | { id?: string; name?: string }
+
+function normalizeUserRoles(roles: RoleInput[] | undefined) {
+  return (roles ?? [])
+    .map((role) => (typeof role === "string" ? role : role.name))
+    .filter((role): role is string => Boolean(role))
+}
 
 export function UserManagement() {
-  const [users, setUsers] = useState<User[]>([])
-  const [loading, setLoading] = useState(true)
-  const [searchQuery, setSearchQuery] = useState("")
-  // Replace the pagination state with the hook
-  const { currentPage, totalPages, handlePageChange, updateTotalPages, resetPage, getPaginationParams } = usePagination(
-    {
-      initialPage: 0,
-      initialSize: 10,
-      initialSortBy: "id",
-      initialSortDir: "asc",
-    },
-  )
+  const queryClient = useQueryClient()
+  const { toast } = useToast()
   const [selectedUser, setSelectedUser] = useState<User | null>(null)
   const [editRolesDialog, setEditRolesDialog] = useState(false)
   const [deleteUserDialog, setDeleteUserDialog] = useState(false)
   const [userRoles, setUserRoles] = useState<string[]>([])
-  const { toast } = useToast()
+  const [tableData, setTableData] = useState<User[]>([])
+  const [pageCount, setPageCount] = useState(0)
 
   const availableRoles = ["USER", "ADMIN", "MODERATOR"]
 
-  // Update the useEffect to include a debounced search
-  useEffect(() => {
-    const timeoutId = setTimeout(
-      () => {
-        if (searchQuery) {
-          resetPage() // Reset to first page when searching
-        }
-        fetchUsers()
+  const handleEditRoles = useCallback((user: User) => {
+    setSelectedUser(user)
+    setUserRoles(normalizeUserRoles(user.roles as RoleInput[]))
+    setEditRolesDialog(true)
+  }, [])
+
+  const handleDeleteUser = useCallback((user: User) => {
+    setSelectedUser(user)
+    setDeleteUserDialog(true)
+  }, [])
+
+  const columns = useMemo<ColumnDef<User>[]>(
+    () => [
+      {
+        id: "user",
+        header: "User",
+        cell: ({ row }) => (
+          <div className="flex items-center space-x-2">
+            <Avatar className="h-8 w-8">
+              <AvatarImage src="/placeholder.svg?height=32&width=32" />
+              <AvatarFallback>{row.original.username.charAt(0).toUpperCase()}</AvatarFallback>
+            </Avatar>
+            <div>
+              <p className="font-medium">{row.original.fullName || row.original.username}</p>
+              <p className="text-sm text-muted-foreground">@{row.original.username}</p>
+            </div>
+          </div>
+        ),
       },
-      searchQuery ? 500 : 0,
-    )
+      {
+        accessorKey: "email",
+        header: "Email",
+      },
+      {
+        id: "roles",
+        header: "Roles",
+        cell: ({ row }) => (
+          <div className="flex flex-wrap gap-1">
+            {normalizeUserRoles(row.original.roles as RoleInput[]).map((role) => (
+              <Badge key={role} variant="secondary" className="text-xs">
+                {role}
+              </Badge>
+            ))}
+          </div>
+        ),
+      },
+      {
+        id: "joined",
+        header: "Joined",
+        cell: () => <span className="text-sm text-muted-foreground">{new Date().toLocaleDateString()}</span>,
+      },
+      {
+        id: "actions",
+        header: "",
+        cell: ({ row }) => (
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="ghost" size="icon">
+                <MoreHorizontal className="h-4 w-4" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              <DropdownMenuItem onClick={() => handleEditRoles(row.original)}>
+                <Shield className="mr-2 h-4 w-4" />
+                Edit Roles
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem onClick={() => handleDeleteUser(row.original)} className="text-destructive">
+                <Trash2 className="mr-2 h-4 w-4" />
+                Delete User
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        ),
+      },
+    ],
+    [handleDeleteUser, handleEditRoles],
+  )
 
-    return () => clearTimeout(timeoutId)
-  }, [currentPage, searchQuery, getPaginationParams, resetPage])
+  const table = useServerTable<User>({
+    data: tableData,
+    columns,
+    pageCount,
+    initialPageSize: 10,
+    initialSorting: [{ id: "createdAt", desc: true }],
+  })
 
-  // Update the fetchUsers function
-  const fetchUsers = async () => {
-    setLoading(true)
-    try {
-      const paginationParams = getPaginationParams()
-      const response = await api.getAllUsers({
-        ...paginationParams,
-        search: searchQuery.trim() || undefined,
-      })
-      if (response.success) {
-        setUsers(response.data.content)
-        updateTotalPages(response.data.totalPages)
-      }
-    } catch (error) {
-      console.error("Failed to fetch users:", error)
+  const usersQuery = useQuery(adminQueryOptions.users(table.params))
+
+  useEffect(() => {
+    if (usersQuery.data) {
+      setTableData(usersQuery.data.content)
+      setPageCount(usersQuery.data.totalPages)
+    } else if (!usersQuery.isPending) {
+      setTableData([])
+      setPageCount(0)
+    }
+  }, [usersQuery.data, usersQuery.isPending])
+
+  useEffect(() => {
+    if (usersQuery.error) {
+      console.error("Failed to fetch users:", usersQuery.error)
       toast({
         title: "Error",
         description: "Failed to fetch users",
         variant: "destructive",
       })
-    } finally {
-      setLoading(false)
     }
-  }
+  }, [toast, usersQuery.error])
 
-  const handleEditRoles = (user: User) => {
-    setSelectedUser(user)
-    setUserRoles([...user.roles.map((role) => role.name)]) 
-    setEditRolesDialog(true)
-  }
+  const updateRolesMutation = useMutation({
+    mutationFn: async ({ userId, roles }: { userId: string; roles: string[] }) =>
+      unwrapApiResponse(await api.updateUserRoles(userId, roles)),
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ["admin", "users"] })
+      toast({
+        title: "Success",
+        description: "User roles updated successfully",
+      })
+      setEditRolesDialog(false)
+    },
+  })
 
-  const handleDeleteUser = (user: User) => {
-    setSelectedUser(user)
-    setDeleteUserDialog(true)
-  }
+  const deleteUserMutation = useMutation({
+    mutationFn: async (userId: string) => unwrapApiResponse(await api.deleteUser(userId)),
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ["admin", "users"] })
+      toast({
+        title: "Success",
+        description: "User deleted successfully",
+      })
+      setDeleteUserDialog(false)
+    },
+  })
 
   const saveUserRoles = async () => {
-    if (!selectedUser) return
+    if (!selectedUser) {
+      return
+    }
 
     try {
-      const response = await api.updateUserRoles(selectedUser.id, userRoles)
-      if (response.success) {
-        toast({
-          title: "Success",
-          description: "User roles updated successfully",
-        })
-        setEditRolesDialog(false)
-        fetchUsers()
-      }
+      await updateRolesMutation.mutateAsync({ userId: selectedUser.id, roles: userRoles })
     } catch (error) {
       toast({
         title: "Error",
@@ -127,16 +205,12 @@ export function UserManagement() {
   }
 
   const confirmDeleteUser = async () => {
-    if (!selectedUser) return
+    if (!selectedUser) {
+      return
+    }
 
     try {
-      await api.deleteUser(selectedUser.id)
-      toast({
-        title: "Success",
-        description: "User deleted successfully",
-      })
-      setDeleteUserDialog(false)
-      fetchUsers()
+      await deleteUserMutation.mutateAsync(selectedUser.id)
     } catch (error) {
       toast({
         title: "Error",
@@ -147,12 +221,10 @@ export function UserManagement() {
   }
 
   const toggleRole = (role: string) => {
-    if (userRoles.includes(role)) {
-      setUserRoles(userRoles.filter((r) => r !== role))
-    } else {
-      setUserRoles([...userRoles, role])
-    }
+    setUserRoles((previous) => (previous.includes(role) ? previous.filter((currentRole) => currentRole !== role) : [...previous, role]))
   }
+
+  const loading = usersQuery.isPending
 
   return (
     <Card>
@@ -162,36 +234,45 @@ export function UserManagement() {
       </CardHeader>
       <CardContent>
         <div className="space-y-4">
-          {/* Search */}
-          {/* Update the search input to show current query */}
           <div className="flex items-center space-x-2">
             <div className="relative flex-1 max-w-sm">
               <Search className="absolute left-2 top-2.5 h-4 w-4 text-muted-foreground" />
               <Input
                 placeholder="Search users by username or email..."
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
+                value={table.globalFilter}
+                onChange={(event) => {
+                  table.setGlobalFilter(event.target.value)
+                  table.table.setPageIndex(0)
+                }}
                 className="pl-8"
               />
             </div>
-            {searchQuery && (
-              <Button variant="outline" size="sm" onClick={() => setSearchQuery("")}>
+            {table.globalFilter && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  table.setGlobalFilter("")
+                  table.table.setPageIndex(0)
+                }}
+              >
                 Clear
               </Button>
             )}
           </div>
 
-          {/* Users Table */}
           <div className="border rounded-md">
             <Table>
               <TableHeader>
-                <TableRow>
-                  <TableHead>User</TableHead>
-                  <TableHead>Email</TableHead>
-                  <TableHead>Roles</TableHead>
-                  <TableHead>Joined</TableHead>
-                  <TableHead className="w-[70px]">Actions</TableHead>
-                </TableRow>
+                {table.table.getHeaderGroups().map((headerGroup) => (
+                  <TableRow key={headerGroup.id}>
+                    {headerGroup.headers.map((header) => (
+                      <TableHead key={header.id}>
+                        {header.isPlaceholder ? null : flexRender(header.column.columnDef.header, header.getContext())}
+                      </TableHead>
+                    ))}
+                  </TableRow>
+                ))}
               </TableHeader>
               <TableBody>
                 {loading ? (
@@ -217,60 +298,18 @@ export function UserManagement() {
                       </TableCell>
                     </TableRow>
                   ))
-                ) : users.length === 0 ? (
+                ) : tableData.length === 0 ? (
                   <TableRow>
                     <TableCell colSpan={5} className="text-center py-8">
                       No users found
                     </TableCell>
                   </TableRow>
                 ) : (
-                  users.map((user) => (
-                    <TableRow key={user.id}>
-                      <TableCell>
-                        <div className="flex items-center space-x-2">
-                          <Avatar className="h-8 w-8">
-                            <AvatarImage src="/placeholder.svg?height=32&width=32" />
-                            <AvatarFallback>{user.username.charAt(0).toUpperCase()}</AvatarFallback>
-                          </Avatar>
-                          <div>
-                            <p className="font-medium">{user.fullName || user.username}</p>
-                            <p className="text-sm text-muted-foreground">@{user.username}</p>
-                          </div>
-                        </div>
-                      </TableCell>
-                      <TableCell>{user.email}</TableCell>
-                      <TableCell>
-                        <div className="flex flex-wrap gap-1">
-                          {user.roles.map((role) => (
-                            <Badge key={role.id} variant="secondary" className="text-xs">
-                              {role.name}
-                            </Badge>
-                          ))}
-                        </div>
-                      </TableCell>
-                      <TableCell>
-                        <span className="text-sm text-muted-foreground">{new Date().toLocaleDateString()}</span>
-                      </TableCell>
-                      <TableCell>
-                        <DropdownMenu>
-                          <DropdownMenuTrigger asChild>
-                            <Button variant="ghost" size="icon">
-                              <MoreHorizontal className="h-4 w-4" />
-                            </Button>
-                          </DropdownMenuTrigger>
-                          <DropdownMenuContent align="end">
-                            <DropdownMenuItem onClick={() => handleEditRoles(user)}>
-                              <Shield className="mr-2 h-4 w-4" />
-                              Edit Roles
-                            </DropdownMenuItem>
-                            <DropdownMenuSeparator />
-                            <DropdownMenuItem onClick={() => handleDeleteUser(user)} className="text-destructive">
-                              <Trash2 className="mr-2 h-4 w-4" />
-                              Delete User
-                            </DropdownMenuItem>
-                          </DropdownMenuContent>
-                        </DropdownMenu>
-                      </TableCell>
+                  table.table.getRowModel().rows.map((row) => (
+                    <TableRow key={row.id}>
+                      {row.getVisibleCells().map((cell) => (
+                        <TableCell key={cell.id}>{flexRender(cell.column.columnDef.cell, cell.getContext())}</TableCell>
+                      ))}
                     </TableRow>
                   ))
                 )}
@@ -278,18 +317,16 @@ export function UserManagement() {
             </Table>
           </div>
 
-          {/* Pagination */}
           <Pagination
-            currentPage={currentPage}
-            totalPages={totalPages}
-            onPageChange={handlePageChange}
+            currentPage={table.pagination.pageIndex}
+            totalPages={pageCount}
+            onPageChange={(page) => table.table.setPageIndex(page)}
             showPageNumbers={true}
             className="mt-4"
           />
         </div>
       </CardContent>
 
-      {/* Edit Roles Dialog */}
       <Dialog open={editRolesDialog} onOpenChange={setEditRolesDialog}>
         <DialogContent>
           <DialogHeader>
@@ -310,12 +347,13 @@ export function UserManagement() {
             <Button variant="outline" onClick={() => setEditRolesDialog(false)}>
               Cancel
             </Button>
-            <Button onClick={saveUserRoles}>Save Changes</Button>
+            <Button onClick={saveUserRoles} disabled={updateRolesMutation.isPending}>
+              Save Changes
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
 
-      {/* Delete User Dialog */}
       <Dialog open={deleteUserDialog} onOpenChange={setDeleteUserDialog}>
         <DialogContent>
           <DialogHeader>
@@ -328,7 +366,7 @@ export function UserManagement() {
             <Button variant="outline" onClick={() => setDeleteUserDialog(false)}>
               Cancel
             </Button>
-            <Button variant="destructive" onClick={confirmDeleteUser}>
+            <Button variant="destructive" onClick={confirmDeleteUser} disabled={deleteUserMutation.isPending}>
               Delete User
             </Button>
           </DialogFooter>

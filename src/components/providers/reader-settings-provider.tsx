@@ -1,10 +1,14 @@
 "use client"
 
 import type React from "react"
-import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react"
-import { useAuth } from "./auth-provider"
+import { createContext, useCallback, useContext, useEffect, useMemo } from "react"
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { ReaderSettings } from "@/models"
+import { useAuth } from "./auth-provider"
 import { api } from "@/services/api"
+import { queryKeys } from "@/lib/query/keys"
+import { readerSettingsQueryOptions } from "@/lib/query/options/reader-settings"
+import { unwrapApiResponse } from "@/lib/query/unwrap-api"
 
 interface ReaderSettingsContextValue {
   settings: ReaderSettings | null
@@ -19,11 +23,8 @@ const ReaderSettingsContext = createContext<ReaderSettingsContextValue | undefin
 const STORAGE_KEY = "readerSettings"
 
 export function ReaderSettingsProvider({ children }: { children: React.ReactNode }) {
+  const queryClient = useQueryClient()
   const { user, isAuthenticated, loading: authLoading } = useAuth()
-  const [settings, setSettings] = useState<ReaderSettings | null>(null)
-  const [loading, setLoading] = useState(true)
-  const [saving, setSaving] = useState(false)
-  const [error, setError] = useState<string | null>(null)
 
   const cacheSettings = useCallback((value: ReaderSettings | null) => {
     if (typeof window === "undefined") {
@@ -54,6 +55,7 @@ export function ReaderSettingsProvider({ children }: { children: React.ReactNode
         window.localStorage.removeItem(STORAGE_KEY)
         return null
       }
+
       return parsed
     } catch (parseError) {
       console.error("Failed to parse cached reader settings", parseError)
@@ -62,73 +64,52 @@ export function ReaderSettingsProvider({ children }: { children: React.ReactNode
     }
   }, [user])
 
-  const loadSettings = useCallback(
-    async (options?: { silent?: boolean }): Promise<ReaderSettings | null> => {
+  const cachedSettings = useMemo(() => loadCachedSettings(), [loadCachedSettings])
+
+  const settingsQuery = useQuery({
+    ...readerSettingsQueryOptions.detail(user?.id),
+    enabled: !authLoading && isAuthenticated && Boolean(user?.id),
+    placeholderData: cachedSettings ?? undefined,
+  })
+
+  const updateSettingsMutation = useMutation({
+    mutationFn: async (changes: Partial<ReaderSettings>) => unwrapApiResponse(await api.updateReaderSettings(changes)),
+    onSuccess: (data) => {
+      if (!user?.id) {
+        return
+      }
+
+      queryClient.setQueryData(queryKeys.readerSettings.detail(user.id), data)
+      cacheSettings(data)
+    },
+  })
+
+  useEffect(() => {
+    if (!isAuthenticated || !user) {
+      cacheSettings(null)
+      queryClient.removeQueries({ queryKey: queryKeys.readerSettings.all })
+    }
+  }, [cacheSettings, isAuthenticated, queryClient, user])
+
+  useEffect(() => {
+    if (settingsQuery.data) {
+      cacheSettings(settingsQuery.data)
+    }
+  }, [cacheSettings, settingsQuery.data])
+
+  const refreshSettings = useCallback(
+    async (_options?: { silent?: boolean }): Promise<ReaderSettings | null> => {
       if (!isAuthenticated || !user) {
-        setSettings(null)
         cacheSettings(null)
-        setError(null)
-        setLoading(false)
         return null
       }
 
-      if (!options?.silent) {
-        setLoading(true)
-      }
-
-      try {
-        const response = await api.getReaderSettings()
-        if (!response.success) {
-          throw new Error(response.message || "Failed to load reader settings")
-        }
-
-        setSettings(response.data)
-        cacheSettings(response.data)
-        setError(null)
-        return response.data
-      } catch (err) {
-        const message = err instanceof Error ? err.message : "Failed to load reader settings"
-        console.error("Failed to load reader settings", err)
-        setError(message)
-        throw new Error(message)
-      } finally {
-        if (!options?.silent) {
-          setLoading(false)
-        }
-      }
+      const freshSettings = await queryClient.fetchQuery(readerSettingsQueryOptions.detail(user.id))
+      cacheSettings(freshSettings)
+      return freshSettings
     },
-    [cacheSettings, isAuthenticated, user]
+    [cacheSettings, isAuthenticated, queryClient, user],
   )
-
-  useEffect(() => {
-    if (authLoading) {
-      setLoading(true)
-      return
-    }
-
-    if (!isAuthenticated || !user) {
-      setSettings(null)
-      cacheSettings(null)
-      setError(null)
-      setLoading(false)
-      return
-    }
-
-    const cached = loadCachedSettings()
-    if (cached) {
-      setSettings(cached)
-      setLoading(false)
-    } else {
-      setLoading(true)
-    }
-
-    loadSettings({ silent: Boolean(cached) }).catch((err) => {
-      console.error("Failed to refresh reader settings", err)
-      if (!cached) {
-        setLoading(false)
-      }
-    })
-  }, [authLoading, cacheSettings, isAuthenticated, loadCachedSettings, loadSettings, user])
 
   const updateSettings = useCallback(
     async (changes: Partial<ReaderSettings>): Promise<ReaderSettings | null> => {
@@ -136,46 +117,34 @@ export function ReaderSettingsProvider({ children }: { children: React.ReactNode
         throw new Error("You need to be logged in to update reader settings.")
       }
 
-      setSaving(true)
-      try {
-        const response = await api.updateReaderSettings(changes)
-        if (!response.success) {
-          throw new Error(response.message || "Failed to update reader settings")
-        }
-
-        setSettings(response.data)
-        cacheSettings(response.data)
-        setError(null)
-        return response.data
-      } catch (err) {
-        const message = err instanceof Error ? err.message : "Failed to update reader settings"
-        console.error("Failed to update reader settings", err)
-        setError(message)
-        throw new Error(message)
-      } finally {
-        setSaving(false)
-      }
+      return updateSettingsMutation.mutateAsync(changes)
     },
-    [cacheSettings, isAuthenticated, user]
-  )
-
-  const refreshSettings = useCallback(
-    async (options?: { silent?: boolean }): Promise<ReaderSettings | null> => {
-      return loadSettings(options)
-    },
-    [loadSettings]
+    [isAuthenticated, updateSettingsMutation, user],
   )
 
   const contextValue = useMemo<ReaderSettingsContextValue>(
     () => ({
-      settings,
-      loading,
-      saving,
-      error,
+      settings: settingsQuery.data ?? cachedSettings ?? null,
+      loading: authLoading || (settingsQuery.isPending && !cachedSettings),
+      saving: updateSettingsMutation.isPending,
+      error:
+        (updateSettingsMutation.error instanceof Error && updateSettingsMutation.error.message) ||
+        (settingsQuery.error instanceof Error && settingsQuery.error.message) ||
+        null,
       refreshSettings,
       updateSettings,
     }),
-    [error, loading, refreshSettings, saving, settings, updateSettings]
+    [
+      authLoading,
+      cachedSettings,
+      refreshSettings,
+      settingsQuery.data,
+      settingsQuery.error,
+      settingsQuery.isPending,
+      updateSettings,
+      updateSettingsMutation.error,
+      updateSettingsMutation.isPending,
+    ],
   )
 
   return <ReaderSettingsContext.Provider value={contextValue}>{children}</ReaderSettingsContext.Provider>

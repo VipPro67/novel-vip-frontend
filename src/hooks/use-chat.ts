@@ -1,6 +1,10 @@
 "use client"
 
-import { useState, useCallback } from "react"
+import { useCallback, useState } from "react"
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
+import { queryKeys } from "@/lib/query/keys"
+import { chatQueryOptions } from "@/lib/query/options/chat"
+import { unwrapApiResponse } from "@/lib/query/unwrap-api"
 import { api } from "@/services/api"
 import { useToast } from "@/hooks/use-toast"
 import { User, Group } from "@/models"
@@ -30,98 +34,81 @@ export interface ChatGroup {
 }
 
 export function useChat() {
-  const [groups, setGroups] = useState<ChatGroup[]>([])
-  const [messages, setMessages] = useState<ChatMessage[]>([])
-  const [loading, setLoading] = useState(false)
-  const [error, setError] = useState<string | null>(null)
+  const queryClient = useQueryClient()
   const { toast } = useToast()
+  const [selectedGroupId, setSelectedGroupId] = useState<string | null>(null)
+
+  const groupsQuery = useQuery({
+    ...chatQueryOptions.groups(),
+    enabled: false,
+  })
+
+  const messagesQuery = useQuery({
+    ...chatQueryOptions.messages(selectedGroupId ?? ""),
+    enabled: Boolean(selectedGroupId),
+  })
+
+  const sendMessageMutation = useMutation({
+    mutationFn: async ({ groupId, content }: { groupId: string; content: string }) =>
+      unwrapApiResponse(await api.sendMessage(groupId, content)),
+    onSuccess: async (_, variables) => {
+      await queryClient.invalidateQueries({ queryKey: queryKeys.chat.messages(variables.groupId) })
+      await queryClient.invalidateQueries({ queryKey: queryKeys.chat.groups() })
+      toast({ title: "Message sent" })
+    },
+  })
+
+  const createGroupMutation = useMutation({
+    mutationFn: async ({ name, description }: { name: string; description?: string }) =>
+      unwrapApiResponse(await api.createGroup(name, description)),
+    onSuccess: async (group) => {
+      await queryClient.invalidateQueries({ queryKey: queryKeys.chat.groups() })
+      setSelectedGroupId(group.id)
+      toast({ title: "Group created successfully" })
+    },
+  })
 
   const fetchGroups = useCallback(async () => {
-    try {
-      setLoading(true)
-      setError(null)
-      const response = await api.getAllGroups({ page: 0, size: 50 })
-      if (response.success && response.data) {
-        setGroups(response.data.content || [])
-      }
-    } catch (err) {
-      const errorMessage = err instanceof Error ? err.message : "Failed to fetch groups"
-      setError(errorMessage)
-      console.error("[v0] Error fetching groups:", errorMessage)
-    } finally {
-      setLoading(false)
-    }
-  }, [])
+    await groupsQuery.refetch()
+  }, [groupsQuery])
 
-  const fetchGroupMessages = useCallback(async (groupId: string) => {
-    try {
-      setLoading(true)
-      setError(null)
-      const response = await api.getMessagesByGroup(groupId, { page: 0, size: 100 })
-      if (response.success && response.data) {
-        setMessages(response.data.content || [])
-      }
-    } catch (err) {
-      const errorMessage = err instanceof Error ? err.message : "Failed to fetch messages"
-      setError(errorMessage)
-      console.error("[v0] Error fetching messages:", errorMessage)
-    } finally {
-      setLoading(false)
-    }
+  const fetchGroupMessages = useCallback((groupId: string) => {
+    setSelectedGroupId(groupId)
   }, [])
 
   const sendMessage = useCallback(
     async (groupId: string, content: string) => {
       try {
-        setError(null)
-        // This would call the actual send message API
-        // For now, we'll add it optimistically
-        const newMessage: ChatMessage = {
-          id: Date.now().toString(),
-          content,
-          timestamp: new Date().toLocaleTimeString(),
-        }
-        setMessages((prev) => [...prev, newMessage])
-        toast({ title: "Message sent" })
+        await sendMessageMutation.mutateAsync({ groupId, content })
       } catch (err) {
         const errorMessage = err instanceof Error ? err.message : "Failed to send message"
-        setError(errorMessage)
         toast({ title: "Error", description: errorMessage, variant: "destructive" })
       }
     },
-    [toast],
+    [sendMessageMutation, toast],
   )
 
   const createGroup = useCallback(
     async (name: string, description?: string) => {
       try {
-        setError(null)
-        // This would call the actual create group API
-        const newGroup: ChatGroup = {
-          id: Date.now().toString(),
-          name,
-          description,
-          memberCount: 1,
-          isPrivate: false,
-          createdAt: new Date().toISOString(),
-        }
-        setGroups((prev) => [newGroup, ...prev])
-        toast({ title: "Group created successfully" })
-        return newGroup
+        return await createGroupMutation.mutateAsync({ name, description })
       } catch (err) {
         const errorMessage = err instanceof Error ? err.message : "Failed to create group"
-        setError(errorMessage)
         toast({ title: "Error", description: errorMessage, variant: "destructive" })
+        return undefined
       }
     },
-    [toast],
+    [createGroupMutation, toast],
   )
 
   return {
-    groups,
-    messages,
-    loading,
-    error,
+    groups: ((groupsQuery.data?.content as ChatGroup[] | undefined) ?? []),
+    messages: ((messagesQuery.data?.content as ChatMessage[] | undefined) ?? []),
+    loading: groupsQuery.isFetching || messagesQuery.isFetching || sendMessageMutation.isPending || createGroupMutation.isPending,
+    error:
+      (groupsQuery.error instanceof Error && groupsQuery.error.message) ||
+      (messagesQuery.error instanceof Error && messagesQuery.error.message) ||
+      null,
     fetchGroups,
     fetchGroupMessages,
     sendMessage,

@@ -47,6 +47,15 @@ export const queryKeys = {
     dashboard: () => ["admin", "dashboard"] as const,
     users: (params: QueryParams = {}) => ["admin", "users", params] as const,
     novels: (params: QueryParams = {}) => ["admin", "novels", params] as const,
+    comments: (params: QueryParams = {}) => ["admin", "comments", params] as const,
+    reports: (params: QueryParams = {}) => ["admin", "reports", params] as const,
+    reviews: (params: QueryParams = {}) => ["admin", "reviews", params] as const,
+    correctionsPending: (params: QueryParams = {}) => ["admin", "corrections", "pending", params] as const,
+    correctionsByStatus: (status: string, params: QueryParams = {}) => ["admin", "corrections", "status", { status, ...params }] as const,
+    correctionDetail: (id: string) => ["admin", "corrections", "detail", { id }] as const,
+    novelSourcesAll: () => ["admin", "novel-sources", "all"] as const,
+    novelSourcesByNovelId: (novelId: string) => ["admin", "novel-sources", "novel", { novelId }] as const,
+    novelSourceDetail: (id: string) => ["admin", "novel-sources", "detail", { id }] as const,
   },
   notifications: {
     all: ["notifications"] as const,
@@ -63,5 +72,23 @@ export const queryKeys = {
   },
   videos: {
     list: (params: QueryParams = {}) => ["videos", "list", params] as const,
+    detail: (videoId: string) => ["videos", "detail", { videoId }] as const,
+    seriesList: (params: QueryParams = {}) => ["videos", "series", "list", params] as const,
+    seriesDetail: (seriesId: string) => ["videos", "series", "detail", { seriesId }] as const,
+  },
+  bookmarks: {
+    list: (params: QueryParams = {}) => ["bookmarks", "list", params] as const,
+  },
+  gamification: {
+    profile: () => ["gamification", "profile"] as const,
+  },
+  reports: {
+    mine: (params: QueryParams = {}) => ["reports", "mine", params] as const,
+  },
+  featureRequests: {
+    list: (params: QueryParams = {}) => ["feature-requests", "list", params] as const,
+  },
+  reviews: {
+    novel: (novelId: string, params: QueryParams = {}) => ["reviews", "novel", { novelId, ...params }] as const,
   },
 } as const

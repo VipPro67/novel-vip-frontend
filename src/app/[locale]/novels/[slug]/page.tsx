@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useState, useMemo, useCallback } from "react"
+import { useEffect, useState, useMemo } from "react"
 import { useParams } from "next/navigation"
 import { useRouter } from "@/navigation"
 import Image from "next/image"
@@ -45,12 +45,26 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog"
-import { Header } from "@/components/layout/header"
 import { useAuth } from "@/components/providers/auth-provider"
 import { useToast } from "@/hooks/use-toast"
-import { api} from "@/services/api"
 import { formatRelativeTime } from "@/lib/utils"
 import { Comment, Chapter, Novel, type Notification } from "@/models"
+import {
+  useNovelDetailBySlugQuery,
+  useNovelChaptersQuery,
+  useNovelFavoriteStatusQuery,
+  useNovelUserRatingQuery,
+  useNovelCommentsQuery,
+} from "@/hooks/queries/use-novels"
+import {
+  useAddToFavoritesMutation,
+  useRemoveFromFavoritesMutation,
+  useRateNovelMutation,
+  useAddCommentMutation,
+  useUpdateCommentMutation,
+  useDeleteCommentMutation,
+} from "@/hooks/mutations/use-mutations"
+import { organizeComments } from "@/lib/query/options/novels"
 
 // Dynamic imports for heavy components
 const ReportDialog = dynamic(() => import("@/components/report/report-dialog").then(mod => ({ default: mod.ReportDialog })), {
@@ -69,211 +83,71 @@ export default function NovelDetailPage() {
   const t = useTranslations("NovelDetail")
   const { isAuthenticated, user } = useAuth()
   const { toast } = useToast()
-  const [novel, setNovel] = useState<Novel | null>(null)
-  const [chapters, setChapters] = useState<Chapter[]>([])
-  const [chaptersLoading, setChaptersLoading] = useState(false)
+
+  // Pagination states
   const [chaptersPage, setChaptersPage] = useState(0)
   const [chaptersSize, setChaptersSize] = useState(50)
-  const [chaptersTotalPages, setChaptersTotalPages] = useState(0)
-  const [chaptersTotalElements, setChaptersTotalElements] = useState(0)
   const [jumpToChapter, setJumpToChapter] = useState("")
-  const [comments, setComments] = useState<CommentWithReplies[]>([])
-  const [isFavorite, setIsFavorite] = useState(false)
-  const [userRating, setUserRating] = useState(0)
+
+  // Form input states
   const [newComment, setNewComment] = useState("")
   const [editingComment, setEditingComment] = useState<string | null>(null)
   const [editContent, setEditContent] = useState("")
-  const [loading, setLoading] = useState(true)
   const [tab, setTab] = useState("chapters") // default tab
 
-  // Comment state
-  const [showComments, setShowComments] = useState(false)
-  const [commentsLoading, setCommentsLoading] = useState(false)
-  const [submittingComment, setSubmittingComment] = useState(false)
-  const [totalComments, setTotalComments] = useState(0)
-  const [commentsLoaded, setCommentsLoaded] = useState(false)
-
-  // Reply state
+  // Reply states
   const [replyingTo, setReplyingTo] = useState<string | null>(null)
   const [replyContent, setReplyContent] = useState("")
-  const [submittingReply, setSubmittingReply] = useState(false)
 
-  useEffect(() => {
-    if (slug) {
-      fetchNovelData(slug)
+  // Visibility states for replies
+  const [collapsedCommentIds, setCollapsedCommentIds] = useState<Record<string, boolean>>({})
+
+  // Queries
+  const { data: novel, isLoading: novelLoading, error: novelError } = useNovelDetailBySlugQuery(slug ?? "")
+
+  const { data: chaptersData, isLoading: chaptersLoading } = useNovelChaptersQuery(
+    novel?.id ?? "",
+    {
+      page: chaptersPage,
+      size: chaptersSize,
+      sortBy: "chapterNumber",
+      sortDir: "asc",
     }
-  }, [slug])
+  )
+  const chapters = chaptersData?.content ?? []
+  const chaptersTotalPages = chaptersData?.totalPages ?? 0
+  const chaptersTotalElements = chaptersData?.totalElements ?? 0
 
-  useEffect(() => {
-    console.log(chaptersPage);
-    if (novel) {
-      fetchChapters(novel.id, chaptersPage, chaptersSize)
-      fetchUserRating(novel.id)
+  const { data: isFavoriteData } = useNovelFavoriteStatusQuery(novel?.id ?? "")
+  const isFavorite = isFavoriteData ?? false
+
+  const { data: userRatingData } = useNovelUserRatingQuery(novel?.id ?? "")
+  const userRating = userRatingData?.score ?? 0
+
+  const { data: commentsData, isLoading: commentsLoading, refetch: refetchComments } = useNovelCommentsQuery(
+    novel?.id ?? "",
+    {
+      page: 0,
+      size: 100,
+      sortBy: "createdAt",
+      sortDir: "asc",
     }
-  }, [chaptersPage, chaptersSize])
-  const fetchChapters = async (novelId: string, page = 0, size = 100) => {
-    setChaptersLoading(true)
-    try {
-      if (!novelId) {
-        return
-      }
-      const chaptersResponse = await api.getChaptersByNovel(novelId, {
-        page,
-        size,
-        sortBy: "chapterNumber",
-        sortDir: "asc",
-      })
-      if (chaptersResponse.success) {
-        setChapters(chaptersResponse.data.content)
-        setChaptersTotalPages(chaptersResponse.data.totalPages)
-        setChaptersTotalElements(chaptersResponse.data.totalElements)
-      } else {
-        setChapters([])
-        setChaptersTotalPages(0)
-        setChaptersTotalElements(0)
-      }
-    } catch (error) {
-      console.error("Failed to fetch chapters:", error)
-      toast({
-        title: "Error",
-        description: "Failed to load chapters",
-        variant: "destructive",
-      })
-    } finally {
-      setChaptersLoading(false)
-    }
-  }
+  )
+  const rawComments = commentsData?.content ?? []
+  const totalComments = commentsData?.totalElements ?? 0
 
-  const fetchUserRating = async (novelId: string)=>
-  {    try {
+  // Computed Comments Tree
+  const comments = useMemo(() => organizeComments(rawComments) as CommentWithReplies[], [rawComments])
 
-    if(isAuthenticated)
-      {
-        const ratingResponse = await api.getUserRating(novelId)
-        if(ratingResponse.success)
-        {
-          setUserRating(ratingResponse.data.score)
-        }
-      }}
-      catch (error){
-        console.error("Failed to fetch user rating:", error)
-      }
-  }
+  // Mutations
+  const addToFavoritesMutation = useAddToFavoritesMutation()
+  const removeFromFavoritesMutation = useRemoveFromFavoritesMutation()
+  const rateNovelMutation = useRateNovelMutation()
+  const addCommentMutation = useAddCommentMutation()
+  const updateCommentMutation = useUpdateCommentMutation()
+  const deleteCommentMutation = useDeleteCommentMutation()
 
-  const fetchNovelData = async (novelSlug: string) => {
-    setLoading(true)
-    try {
-      if(!novelSlug || novel != null) {
-        return
-      }
-      const novelResponse = await api.getNovelBySlug(novelSlug)
-
-      if (!novelResponse.success) {
-        throw new Error(novelResponse.message || "Failed to load novel")
-      }
-
-      const novelData = novelResponse.data
-      setNovel(novelData)
-
-      // load first page of chapters using pagination helper
-      await fetchChapters(novelData.id, chaptersPage, chaptersSize)
-
-      if (isAuthenticated) {
-        // Check favorite status
-        try {
-          const favoriteResponse = await api.checkFavoriteStatus(novelData.id)
-          if (favoriteResponse.success) {
-            setIsFavorite(favoriteResponse.data)
-          }
-        } catch (error) {
-          console.error("Failed to check favorite status:", error)
-        }
-
-        // Get user rating
-        try {
-          const ratingResponse = await api.getUserRating(novelData.id)
-          if (ratingResponse.success) {
-            setUserRating(ratingResponse.data.score)
-          }
-        } catch (error) {
-          console.error("Failed to get user rating:", error)
-        }
-      }
-    } catch (error) {
-      console.error("Failed to fetch novel data:", error)
-      toast({
-        title: "Error",
-        description: "Failed to load novel data",
-        variant: "destructive",
-      })
-    } finally {
-      setLoading(false)
-    }
-  }
-
-  const organizeComments = (comments: Comment[]): CommentWithReplies[] => {
-    const commentMap = new Map<string, CommentWithReplies>()
-    const rootComments: CommentWithReplies[] = []
-
-    // First pass: create all comments with empty replies array
-    comments.forEach((comment) => {
-      commentMap.set(comment.id, {
-        ...comment,
-        replies: [],
-        showReplies: true,
-      })
-    })
-
-    // Second pass: organize into tree structure
-    comments.forEach((comment) => {
-      const commentWithReplies = commentMap.get(comment.id)!
-
-      if (comment.parentId) {
-        const parent = commentMap.get(comment.parentId)
-        if (parent) {
-          parent.replies.push(commentWithReplies)
-        }
-      } else {
-        rootComments.push(commentWithReplies)
-      }
-    })
-
-    return rootComments
-  }
-
-  const fetchNovelComments = async (opts?: { force?: boolean }) => {
-    const force = opts?.force === true
-    if (!novel || (!force && commentsLoaded)) return
-
-    setCommentsLoading(true)
-    try {
-      const response = await api.getNovelComments(novel.id, {
-        page: 0,
-        size: 100,
-        sortBy: "createdAt",
-        sortDir: "asc",
-      })
-
-      if (response.success) {
-        const organizedComments = organizeComments(response.data.content)
-        setComments(organizedComments)
-        setTotalComments(response.data.totalElements)
-        setCommentsLoaded(true)
-      }
-    } catch (error) {
-      console.error("Failed to fetch comments:", error)
-      toast({
-        title: "Error",
-        description: "Failed to load comments",
-        variant: "destructive",
-      })
-    } finally {
-      setCommentsLoading(false)
-    }
-  }
-
-  // If the user is already on the novel page and a comment-reply notification arrives,
-  // refresh comments and bring them into view.
+  // Real-time reply listener
   useEffect(() => {
     if (typeof window === "undefined") return
     if (!novel) return
@@ -281,23 +155,17 @@ export default function NovelDetailPage() {
     const handler = (event: Event) => {
       const notification = (event as CustomEvent<Notification>).detail
       if (!notification) return
-
       if (notification.type !== "COMMENT") return
 
-      // Backend currently doesn't include a commentId/novelSlug reference for COMMENT,
-      // so the best we can do client-side is refresh the current novel's comments.
       setTab("comments")
-      void fetchNovelComments({ force: true })
+      void refetchComments()
     }
 
     window.addEventListener("novelvip:notification", handler as EventListener)
     return () => window.removeEventListener("novelvip:notification", handler as EventListener)
-  }, [novel?.id])
+  }, [novel?.id, refetchComments])
 
   const handleShowComments = () => {
-    if (!commentsLoaded) {
-      fetchNovelComments()
-    }
     setTab("comments")
   }
 
@@ -307,18 +175,14 @@ export default function NovelDetailPage() {
       return
     }
 
-    if (!novel) {
-      return
-    }
+    if (!novel) return
 
     try {
       if (isFavorite) {
-        await api.removeFromFavorites(novel.id)
-        setIsFavorite(false)
+        await removeFromFavoritesMutation.mutateAsync(novel.id)
         toast({ title: "Removed from favorites" })
       } else {
-        await api.addToFavorites(novel.id)
-        setIsFavorite(true)
+        await addToFavoritesMutation.mutateAsync(novel.id)
         toast({ title: "Added to favorites" })
       }
     } catch (error) {
@@ -336,13 +200,10 @@ export default function NovelDetailPage() {
       return
     }
 
-    if (!novel) {
-      return
-    }
+    if (!novel) return
 
     try {
-      await api.rateNovel(novel.id, rating)
-      setUserRating(rating)
+      await rateNovelMutation.mutateAsync({ novelId: novel.id, score: rating })
       toast({ title: "Rating submitted" })
     } catch (error) {
       toast({
@@ -361,24 +222,13 @@ export default function NovelDetailPage() {
 
     if (!newComment.trim() || !novel) return
 
-    setSubmittingComment(true)
     try {
-      const response = await api.addComment({
+      await addCommentMutation.mutateAsync({
         content: newComment.trim(),
         novelId: novel.id,
       })
-
-      if (response.success) {
-        const newCommentWithReplies: CommentWithReplies = {
-          ...response.data,
-          replies: [],
-          showReplies: true,
-        }
-        setComments([newCommentWithReplies, ...comments])
-        setTotalComments(totalComments + 1)
-        setNewComment("")
-        toast({ title: "Comment added successfully" })
-      }
+      setNewComment("")
+      toast({ title: "Comment added successfully" })
     } catch (error) {
       console.error("Failed to add comment:", error)
       toast({
@@ -386,8 +236,6 @@ export default function NovelDetailPage() {
         description: "Failed to add comment",
         variant: "destructive",
       })
-    } finally {
-      setSubmittingComment(false)
     }
   }
 
@@ -399,47 +247,15 @@ export default function NovelDetailPage() {
 
     if (!replyContent.trim() || !novel) return
 
-    setSubmittingReply(true)
     try {
-      const response = await api.addComment({
+      await addCommentMutation.mutateAsync({
         content: replyContent.trim(),
         novelId: novel.id,
         parentId: parentId,
       })
-
-      if (response.success) {
-        const newReply: CommentWithReplies = {
-          ...response.data,
-          replies: [],
-          showReplies: true,
-        }
-
-        // Add reply to the correct parent comment
-        const updateComments = (comments: CommentWithReplies[]): CommentWithReplies[] => {
-          return comments.map((comment) => {
-            if (comment.id === parentId) {
-              return {
-                ...comment,
-                replies: [...comment.replies, newReply],
-                showReplies: true,
-              }
-            }
-            if (comment.replies.length > 0) {
-              return {
-                ...comment,
-                replies: updateComments(comment.replies),
-              }
-            }
-            return comment
-          })
-        }
-
-        setComments(updateComments(comments))
-        setTotalComments(totalComments + 1)
-        setReplyContent("")
-        setReplyingTo(null)
-        toast({ title: "Reply added successfully" })
-      }
+      setReplyContent("")
+      setReplyingTo(null)
+      toast({ title: "Reply added successfully" })
     } catch (error) {
       console.error("Failed to add reply:", error)
       toast({
@@ -447,8 +263,6 @@ export default function NovelDetailPage() {
         description: "Failed to add reply",
         variant: "destructive",
       })
-    } finally {
-      setSubmittingReply(false)
     }
   }
 
@@ -461,31 +275,13 @@ export default function NovelDetailPage() {
     if (!editContent.trim()) return
 
     try {
-      const response = await api.updateComment(commentId, {
-        content: editContent.trim(),
+      await updateCommentMutation.mutateAsync({
+        commentId,
+        data: { content: editContent.trim() },
       })
-
-      if (response.success) {
-        const updateComments = (comments: CommentWithReplies[]): CommentWithReplies[] => {
-          return comments.map((comment) => {
-            if (comment.id === commentId) {
-              return { ...comment, ...response.data, edited: true }
-            }
-            if (comment.replies.length > 0) {
-              return {
-                ...comment,
-                replies: updateComments(comment.replies),
-              }
-            }
-            return comment
-          })
-        }
-
-        setComments(updateComments(comments))
-        setEditingComment(null)
-        setEditContent("")
-        toast({ title: "Comment updated successfully" })
-      }
+      setEditingComment(null)
+      setEditContent("")
+      toast({ title: "Comment updated successfully" })
     } catch (error) {
       console.error("Failed to update comment:", error)
       toast({
@@ -498,22 +294,7 @@ export default function NovelDetailPage() {
 
   const handleDeleteComment = async (commentId: string) => {
     try {
-      await api.deleteComment(commentId)
-
-      const removeComment = (comments: CommentWithReplies[]): CommentWithReplies[] => {
-        return comments.filter((comment) => {
-          if (comment.id === commentId) {
-            return false
-          }
-          if (comment.replies.length > 0) {
-            comment.replies = removeComment(comment.replies)
-          }
-          return true
-        })
-      }
-
-      setComments(removeComment(comments))
-      setTotalComments(totalComments - 1)
+      await deleteCommentMutation.mutateAsync(commentId)
       toast({ title: "Comment deleted successfully" })
     } catch (error) {
       console.error("Failed to delete comment:", error)
@@ -525,23 +306,13 @@ export default function NovelDetailPage() {
     }
   }
 
-  const toggleReplies = (commentId: string) => {
-    const updateComments = (comments: CommentWithReplies[]): CommentWithReplies[] => {
-      return comments.map((comment) => {
-        if (comment.id === commentId) {
-          return { ...comment, showReplies: !comment.showReplies }
-        }
-        if (comment.replies.length > 0) {
-          return {
-            ...comment,
-            replies: updateComments(comment.replies),
-          }
-        }
-        return comment
-      })
-    }
+  const isRepliesVisible = (commentId: string) => !collapsedCommentIds[commentId]
 
-    setComments(updateComments(comments))
+  const toggleReplies = (commentId: string) => {
+    setCollapsedCommentIds(prev => ({
+      ...prev,
+      [commentId]: !prev[commentId],
+    }))
   }
 
   const startReading = () => {
@@ -586,6 +357,7 @@ export default function NovelDetailPage() {
   const renderComment = (comment: CommentWithReplies, depth = 0) => {
     const maxDepth = 3
     const isMaxDepth = depth >= maxDepth
+    const repliesOpen = isRepliesVisible(comment.id)
 
     return (
       <div key={comment.id} className={`space-y-3 ${depth > 0 ? "ml-6 pl-4 border-l-2 border-muted" : ""}`}>
@@ -702,7 +474,7 @@ export default function NovelDetailPage() {
 
                 {comment.replies.length > 0 && (
                   <Button variant="ghost" size="sm" onClick={() => toggleReplies(comment.id)} className="text-xs">
-                    {comment.showReplies ? (
+                    {repliesOpen ? (
                       <>
                         <ChevronUp className="mr-1 h-3 w-3" />
                         Hide {comment.replies.length} {comment.replies.length === 1 ? "reply" : "replies"}
@@ -740,9 +512,9 @@ export default function NovelDetailPage() {
                     <Button
                       size="sm"
                       onClick={() => handleAddReply(comment.id)}
-                      disabled={!replyContent.trim() || submittingReply}
+                      disabled={!replyContent.trim() || addCommentMutation.isPending}
                     >
-                      {submittingReply ? (
+                      {addCommentMutation.isPending ? (
                         <>
                           <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                           Posting...
@@ -762,14 +534,14 @@ export default function NovelDetailPage() {
         </div>
 
         {/* Render replies */}
-        {comment.showReplies && comment.replies.length > 0 && (
+        {repliesOpen && comment.replies.length > 0 && (
           <div className="space-y-3">{comment.replies.map((reply) => renderComment(reply, depth + 1))}</div>
         )}
       </div>
     )
   }
 
-  if (loading) {
+  if (novelLoading) {
     return (
       <div className="min-h-screen bg-background">
         <div className="container mx-auto px-4 py-8">
@@ -790,7 +562,7 @@ export default function NovelDetailPage() {
     )
   }
 
-  if (!novel) {
+  if (novelError || !novel) {
     return (
       <div className="min-h-screen bg-background">
         <div className="container mx-auto px-4 py-8">
@@ -812,7 +584,7 @@ export default function NovelDetailPage() {
               <CardContent className="p-3 sm:p-4 md:p-6">
                 <div className="aspect-[3/4] relative mb-3 sm:mb-4">
                   <Image
-                    src={novel.imageUrl || "/placeholder.svg?height=600&width=450" || "/placeholder.svg"}
+                    src={novel.imageUrl || "/placeholder.svg?height=600&width=450"}
                     alt={novel.title}
                     fill
                     className="object-cover rounded-lg"
@@ -877,14 +649,14 @@ export default function NovelDetailPage() {
               </CardContent>
             </Card>
             {/* Description */}
-              <Card className="mt-2">
-                <CardHeader>
-                  <CardTitle>{t("labels.description")}</CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <p className="text-muted-foreground leading-relaxed">{novel.description}</p>
-                </CardContent>
-              </Card>
+            <Card className="mt-2">
+              <CardHeader>
+                <CardTitle>{t("labels.description")}</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <p className="text-muted-foreground leading-relaxed">{novel.description}</p>
+              </CardContent>
+            </Card>
           </div>
 
           {/* Novel Info */}
@@ -942,7 +714,7 @@ export default function NovelDetailPage() {
                     <span className="hidden sm:inline">{t("tabs.chapters")}</span>
                     <span className="sm:hidden">Ch.</span>
                   </TabsTrigger>
-                  <TabsTrigger value="comments" className="text-sm sm:text-base" onClick={() => !commentsLoaded && fetchNovelComments()}>
+                  <TabsTrigger value="comments" className="text-sm sm:text-base">
                     {t("tabs.comments")}
                   </TabsTrigger>
                 </TabsList>
@@ -957,21 +729,21 @@ export default function NovelDetailPage() {
                     <CardContent className="p-3 sm:p-4 md:p-6">
                       <div className="space-y-4">
                         <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-                            <div className="flex items-center space-x-2 text-xs sm:text-sm text-muted-foreground">
+                          <div className="flex items-center space-x-2 text-xs sm:text-sm text-muted-foreground">
                             <span>
                               {t("chapters.showing", { page: chaptersPage + 1, total: Math.max(1, chaptersTotalPages) })}
                             </span>
                           </div>
                           <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3 w-full sm:w-auto">
                             <select
-                              value={chaptersSize}
-                              onChange={(e) => {
-                                const newSize = Number(e.target.value)
-                                setChaptersSize(newSize)
-                                setChaptersPage(0) // Reset to first page when changing size
-                              }}
-                              className="h-8 rounded-md border border-input bg-transparent px-2 sm:px-3 py-1 text-xs sm:text-sm ring-offset-background 
-                                       focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
+                                value={chaptersSize}
+                                onChange={(e) => {
+                                  const newSize = Number(e.target.value)
+                                  setChaptersSize(newSize)
+                                  setChaptersPage(0) // Reset to first page when changing size
+                                }}
+                                className="h-8 rounded-md border border-input bg-transparent px-2 sm:px-3 py-1 text-xs sm:text-sm ring-offset-background 
+                                         focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
                             >
                               <option value={10}>{t("chapters.perPage", { count: 10 })}</option>
                               <option value={20}>{t("chapters.perPage", { count: 20 })}</option>
@@ -981,25 +753,25 @@ export default function NovelDetailPage() {
 
                             <div className="flex items-center gap-2 w-full sm:w-auto">
                               <input
-                                type="number"
-                                min="1"
-                                max={chaptersTotalElements}
-                                value={jumpToChapter}
-                                onChange={(e) => setJumpToChapter(e.target.value)}
-                                onKeyPress={(e) => {
-                                  if (e.key === "Enter") {
-                                    handleJumpToChapter()
-                                  }
-                                }}
-                                placeholder={t("chapters.gotoPlaceholder")}
-                                className="h-8 rounded-md border border-input bg-transparent px-3 py-1 text-sm ring-offset-background 
-                                         focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 w-full sm:w-32"
+                                  type="number"
+                                  min="1"
+                                  max={chaptersTotalElements}
+                                  value={jumpToChapter}
+                                  onChange={(e) => setJumpToChapter(e.target.value)}
+                                  onKeyPress={(e) => {
+                                    if (e.key === "Enter") {
+                                      handleJumpToChapter()
+                                    }
+                                  }}
+                                  placeholder={t("chapters.gotoPlaceholder")}
+                                  className="h-8 rounded-md border border-input bg-transparent px-3 py-1 text-sm ring-offset-background 
+                                           focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 w-full sm:w-32"
                               />
                               <Button
-                                size="sm"
-                                onClick={handleJumpToChapter}
-                                disabled={!jumpToChapter || chaptersLoading}
-                                className="whitespace-nowrap"
+                                  size="sm"
+                                  onClick={handleJumpToChapter}
+                                  disabled={!jumpToChapter || chaptersLoading}
+                                  className="whitespace-nowrap"
                               >
                                 {t("actions.go")}
                               </Button>
@@ -1009,40 +781,40 @@ export default function NovelDetailPage() {
 
                         <div className="space-y-2">
                           {chaptersLoading ? (
-                            <div className="space-y-2">
-                              {Array.from({ length: 5 }).map((_, i) => (
-                                <div key={i} className="h-12 bg-muted rounded-lg animate-pulse" />
-                              ))}
-                            </div>
+                              <div className="space-y-2">
+                                {Array.from({ length: 5 }).map((_, i) => (
+                                    <div key={i} className="h-12 bg-muted rounded-lg animate-pulse" />
+                                ))}
+                              </div>
                           ) : (
-                            chapters.map((chapter) => (
-                              <Link
-                                key={chapter.id}
-                                href={`/novels/${novel.slug}/chapters/${chapter.chapterNumber}`}
-                                className="block p-3 sm:p-4 rounded-lg border hover:bg-muted transition-colors touch-manipulation"
-                              >
-                                <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-1 sm:gap-2">
-                                  <div className="flex justify-between w-full">
-                                    <p className="font-medium text-sm sm:text-base line-clamp-2 sm:line-clamp-1 flex-1">
-                                      {chapter.title}
-                                    </p>
-                                    <p className="text-xs sm:text-sm text-muted-foreground whitespace-nowrap ml-2">
-                                      Updated {formatRelativeDate(chapter.updatedAt)}
-                                    </p>
-                                  </div>
-                                </div>
-                              </Link>
-                            ))
+                              chapters.map((chapter) => (
+                                  <Link
+                                      key={chapter.id}
+                                      href={`/novels/${novel.slug}/chapters/${chapter.chapterNumber}`}
+                                      className="block p-3 sm:p-4 rounded-lg border hover:bg-muted transition-colors touch-manipulation"
+                                  >
+                                    <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-1 sm:gap-2">
+                                      <div className="flex justify-between w-full">
+                                        <p className="font-medium text-sm sm:text-base line-clamp-2 sm:line-clamp-1 flex-1">
+                                          {chapter.title}
+                                        </p>
+                                        <p className="text-xs sm:text-sm text-muted-foreground whitespace-nowrap ml-2">
+                                          Updated {formatRelativeDate(chapter.updatedAt)}
+                                        </p>
+                                      </div>
+                                    </div>
+                                  </Link>
+                              ))
                           )}
                         </div>
 
                         <div className="flex items-center justify-between border-t pt-4">
                           <Button
-                            variant="outline"
-                            size="sm"
-                            className="h-9 px-2 sm:px-4 text-xs sm:text-sm"
-                            onClick={() => setChaptersPage((p) => Math.max(0, p - 1))}
-                            disabled={chaptersPage <= 0 || chaptersLoading}
+                              variant="outline"
+                              size="sm"
+                              className="h-9 px-2 sm:px-4 text-xs sm:text-sm"
+                              onClick={() => setChaptersPage((p) => Math.max(0, p - 1))}
+                              disabled={chaptersPage <= 0 || chaptersLoading}
                           >
                             <ChevronLeft className="h-3 w-3 sm:h-4 sm:w-4 mr-1 sm:mr-2" />
                             <span className="hidden xs:inline">{t("actions.prev")}</span>
@@ -1050,11 +822,11 @@ export default function NovelDetailPage() {
                           </Button>
                           <div className="flex items-center gap-1 text-xs sm:text-sm">
                             <Button
-                              variant="ghost"
-                              size="sm"
-                              className="text-muted-foreground hidden xs:flex"
-                              onClick={() => setChaptersPage(0)}
-                              disabled={chaptersPage === 0}
+                                variant="ghost"
+                                size="sm"
+                                className="text-muted-foreground hidden xs:flex"
+                                onClick={() => setChaptersPage(0)}
+                                disabled={chaptersPage === 0}
                             >
                               {t("actions.first")}
                             </Button>
@@ -1062,21 +834,21 @@ export default function NovelDetailPage() {
                               {chaptersPage + 1}/{Math.max(1, chaptersTotalPages)}
                             </span>
                             <Button
-                              variant="ghost"
-                              size="sm"
-                              className="text-muted-foreground hidden xs:flex"
-                              onClick={() => setChaptersPage(Math.max(0, chaptersTotalPages - 1))}
-                              disabled={chaptersPage >= chaptersTotalPages - 1}
+                                variant="ghost"
+                                size="sm"
+                                className="text-muted-foreground hidden xs:flex"
+                                onClick={() => setChaptersPage(Math.max(0, chaptersTotalPages - 1))}
+                                disabled={chaptersPage >= chaptersTotalPages - 1}
                             >
                               {t("actions.last")}
                             </Button>
                           </div>
                           <Button
-                            variant="outline"
-                            size="sm"
-                            className="h-9 px-2 sm:px-4 text-xs sm:text-sm"
-                            onClick={() => setChaptersPage((p) => Math.min(chaptersTotalPages - 1, p + 1))}
-                            disabled={chaptersPage >= chaptersTotalPages - 1 || chaptersLoading}
+                              variant="outline"
+                              size="sm"
+                              className="h-9 px-2 sm:px-4 text-xs sm:text-sm"
+                              onClick={() => setChaptersPage((p) => Math.min(chaptersTotalPages - 1, p + 1))}
+                              disabled={chaptersPage >= chaptersTotalPages - 1 || chaptersLoading}
                           >
                             <span className="hidden xs:inline">{t("actions.next")}</span>
                             <span className="xs:hidden">{t("actions.next")}</span>
@@ -1091,43 +863,43 @@ export default function NovelDetailPage() {
                 <TabsContent value="comments" className="space-y-4">
                   {/* Add Comment Form */}
                   {isAuthenticated ? (
-                    <Card>
-                      <CardHeader>
-                        <CardTitle>{t("comments.addTitle")}</CardTitle>
-                      </CardHeader>
-                      <CardContent>
-                        <div className="space-y-4">
-                          <Textarea
-                            placeholder={t("comments.placeholder")}
-                            value={newComment}
-                            onChange={(e) => setNewComment(e.target.value)}
-                            className="min-h-[100px]"
-                          />
-                          <Button onClick={handleCommentSubmit} disabled={!newComment.trim() || submittingComment}>
-                            {submittingComment ? (
-                              <>
-                                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                                {t("actions.posting")}
-                              </>
-                            ) : (
-                              <>
-                                <Send className="mr-2 h-4 w-4" />
-                                {t("actions.postComment")}
-                              </>
-                            )}
-                          </Button>
-                        </div>
-                      </CardContent>
-                    </Card>
+                      <Card>
+                        <CardHeader>
+                          <CardTitle>{t("comments.addTitle")}</CardTitle>
+                        </CardHeader>
+                        <CardContent>
+                          <div className="space-y-4">
+                            <Textarea
+                                placeholder={t("comments.placeholder")}
+                                value={newComment}
+                                onChange={(e) => setNewComment(e.target.value)}
+                                className="min-h-[100px]"
+                            />
+                            <Button onClick={handleCommentSubmit} disabled={!newComment.trim() || addCommentMutation.isPending}>
+                              {addCommentMutation.isPending ? (
+                                  <>
+                                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                                    {t("actions.posting")}
+                                  </>
+                              ) : (
+                                  <>
+                                    <Send className="mr-2 h-4 w-4" />
+                                    {t("actions.postComment")}
+                                  </>
+                              )}
+                            </Button>
+                          </div>
+                        </CardContent>
+                      </Card>
                   ) : (
-                    <Card>
-                      <CardContent className="text-center py-8">
-                        <p className="text-muted-foreground mb-4">{t("comments.loginPrompt")}</p>
-                        <Button asChild>
-                          <Link href="/login">{t("actions.login")}</Link>
-                        </Button>
-                      </CardContent>
-                    </Card>
+                      <Card>
+                        <CardContent className="text-center py-8">
+                          <p className="text-muted-foreground mb-4">{t("comments.loginPrompt")}</p>
+                          <Button asChild>
+                            <Link href="/login">{t("actions.login")}</Link>
+                          </Button>
+                        </CardContent>
+                      </Card>
                   )}
 
                   <Card>
@@ -1136,25 +908,25 @@ export default function NovelDetailPage() {
                     </CardHeader>
                     <CardContent>
                       {commentsLoading ? (
-                        <div className="space-y-4">
-                          {Array.from({ length: 3 }).map((_, i) => (
-                            <div key={i} className="animate-pulse space-y-2">
-                              <div className="flex items-center space-x-2">
-                                <div className="h-8 w-8 bg-muted rounded-full" />
-                                <div className="h-4 w-24 bg-muted rounded" />
-                                <div className="h-3 w-16 bg-muted rounded" />
-                              </div>
-                              <div className="h-16 bg-muted rounded" />
-                            </div>
-                          ))}
-                        </div>
+                          <div className="space-y-4">
+                            {Array.from({ length: 3 }).map((_, i) => (
+                                <div key={i} className="animate-pulse space-y-2">
+                                  <div className="flex items-center space-x-2">
+                                    <div className="h-8 w-8 bg-muted rounded-full" />
+                                    <div className="h-4 w-24 bg-muted rounded" />
+                                    <div className="h-3 w-16 bg-muted rounded" />
+                                  </div>
+                                  <div className="h-16 bg-muted rounded" />
+                                </div>
+                            ))}
+                          </div>
                       ) : comments.length > 0 ? (
-                        <div className="space-y-6">{comments.map((comment) => renderComment(comment))}</div>
+                          <div className="space-y-6">{comments.map((comment) => renderComment(comment))}</div>
                       ) : (
-                        <div className="text-center py-8">
-                          <MessageCircle className="mx-auto h-12 w-12 text-muted-foreground mb-4" />
-                          <p className="text-muted-foreground">{t("comments.empty")}</p>
-                        </div>
+                          <div className="text-center py-8">
+                            <MessageCircle className="mx-auto h-12 w-12 text-muted-foreground mb-4" />
+                            <p className="text-muted-foreground">{t("comments.empty")}</p>
+                          </div>
                       )}
                     </CardContent>
                   </Card>

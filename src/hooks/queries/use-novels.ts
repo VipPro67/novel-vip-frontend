@@ -49,3 +49,36 @@ export function useNovelGenresQuery() {
 export function useNovelTagsQuery() {
   return useQuery(novelQueryOptions.tags())
 }
+
+export function useNovelDetailByIdQuery(id: string) {
+  return useQuery(novelQueryOptions.detailById(id))
+}
+
+export function useNovelDetailBySlugQuery(slug: string) {
+  return useQuery(novelQueryOptions.detailBySlug(slug))
+}
+
+export function useNovelChaptersQuery(novelId: string, params: any = {}) {
+  return useQuery(novelQueryOptions.chapters(novelId, params))
+}
+
+export function useReadingHistoryQuery(params: any = {}) {
+  return useQuery(novelQueryOptions.readingHistory(params))
+}
+
+export function useNovelFavoritesQuery(params: any = {}) {
+  return useQuery(novelQueryOptions.favorites(params))
+}
+
+export function useNovelFavoriteStatusQuery(novelId: string) {
+  return useQuery(novelQueryOptions.favoriteStatus(novelId))
+}
+
+export function useNovelUserRatingQuery(novelId: string) {
+  return useQuery(novelQueryOptions.userRating(novelId))
+}
+
+export function useNovelCommentsQuery(novelId: string, params: any = {}) {
+  return useQuery(novelQueryOptions.comments(novelId, params))
+}
+

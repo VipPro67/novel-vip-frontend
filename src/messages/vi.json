@@ -28,6 +28,11 @@
       "en": "Tiếng Anh"
     }
   },
+  "Footer": {
+    "title": "Thông tin liên hệ",
+    "emailLabel": "Email:",
+    "disclaimer": "Nội dung truyện trên website được tổng hợp từ nhiều nguồn công khai trên Internet, chỉ nhằm mục đích giải trí. Mọi bản quyền thuộc về tác giả và nhà phát hành. Vui lòng liên hệ nếu có vấn đề về bản quyền."
+  },
   "Home": {
     "heroTitle": "Khám phá những câu chuyện tuyệt vời",
     "heroDescription": "Đắm mình trong thế giới tiểu thuyết hấp dẫn, từ sử thi fantasy đến chuyện tình lãng mạn. Câu chuyện yêu thích tiếp theo đang chờ bạn.",

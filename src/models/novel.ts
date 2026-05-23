@@ -19,4 +19,5 @@ export interface Novel {
   rating: number
   updatedAt: string
   coverImage?: FileMetadata
+  contentType?: "NOVEL" | "MANGA" | "ANIME"
 }

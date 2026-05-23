@@ -62,12 +62,17 @@ import {
 import ChapterNavigation from "@/components/chapter-navigation";
 import { ReportDialog } from "@/components/report/report-dialog";
 import { api } from "@/services/api";
+import MangaReader from "@/components/novel/manga-reader";
+import AnimePlayer from "@/components/novel/anime-player";
+import type { MangaPayload, AnimePayload } from "@/models/chapter";
 
 const READER_SETTINGS_STORAGE_KEY = "readerSettings";
 
 interface ChapterContent {
   title: string;
-  content: string;
+  content?: string;
+  mangaContent?: MangaPayload;
+  animeContent?: AnimePayload;
 }
 
 interface CommentWithReplies extends Comment {
@@ -406,7 +411,9 @@ export default function ChapterPage() {
       const content = await response.json();
       setChapterContent({
         title: chapterData.title,
-        content: content.content,
+        content: content.html || content.content,
+        mangaContent: content.mangaContent || chapterData.mangaContent,
+        animeContent: content.animeContent || chapterData.animeContent,
       });
       setError(null);
       setErrorMessage("");
@@ -724,7 +731,7 @@ export default function ChapterPage() {
         ): CommentWithReplies[] => {
           return comments.map((comment) => {
             if (comment.id === commentId) {
-              return { ...comment, ...response.data, edited: true };
+              return { ...comment, ...response.data, replies: comment.replies, edited: true };
             }
             if (comment.replies.length > 0) {
               return {
@@ -1322,76 +1329,229 @@ export default function ChapterPage() {
             </nav>
           </div>
 
-          <Card>
-            <CardContent className="p-3 sm:p-4 md:p-6" style={cardContentStyle}>
+          <Card className={chapter.novelContentType && chapter.novelContentType !== "NOVEL" ? "bg-neutral-900 border-neutral-800 text-white" : ""}>
+            <CardContent className="p-3 sm:p-4 md:p-6" style={chapter.novelContentType === "NOVEL" || !chapter.novelContentType ? cardContentStyle : {}}>
               <div className="space-y-4 sm:space-y-6">
-                <div className="flex flex-col sm:flex-row sm:justify-between gap-2 sm:gap-4">
+                <div className="flex flex-col sm:flex-row sm:justify-between gap-2 sm:gap-4 sm:items-center">
                   <h2 className="text-lg sm:text-xl md:text-2xl font-bold line-clamp-2">{chapter.title}</h2>
                   <div className="flex-col text-xs sm:text-sm text-muted-foreground whitespace-nowrap">
-                    <span>{t("meta.words", { count: chapterContent?.content.length ?? 0 })}</span>
-                    <span className="inline"> • </span>
-                    <span>
-                      {t("meta.minutes", { count: Math.round((chapterContent?.content.length ?? 0) / 1500) })}
-                    </span>
+                    {chapter.novelContentType === "MANGA" ? (
+                      <span>{chapterContent?.mangaContent?.pages?.length ?? 0} Pages</span>
+                    ) : chapter.novelContentType === "ANIME" ? (
+                      <span>
+                        {chapterContent?.animeContent?.duration
+                          ? `${Math.round(chapterContent.animeContent.duration / 60)} minutes`
+                          : "Video"}
+                      </span>
+                    ) : (
+                      <>
+                        <span>{t("meta.words", { count: chapterContent?.content?.length ?? 0 })}</span>
+                        <span className="inline"> • </span>
+                        <span>
+                          {t("meta.minutes", { count: Math.round((chapterContent?.content?.length ?? 0) / 1500) })}
+                        </span>
+                      </>
+                    )}
                   </div>
                 </div>
               </div>
             </CardContent>
           </Card>
 
-          <Card>
-            <CardContent className="p-4 sm:p-6 md:p-8" style={cardContentStyle}>
-              <div className="space-y-6">
-                {renderAudioSection()}
-                {contentLoading ? (
-                  <div className="animate-pulse space-y-4">
-                    {Array.from({ length: 15 }).map((_, i) => (
-                      <div key={i} className="h-4 bg-muted rounded"></div>
-                    ))}
-                  </div>
-                ) : error ? (
-                  <div className="text-center py-12 space-y-4">
+          {/* Main content display */}
+          {(!chapter.novelContentType || chapter.novelContentType === "NOVEL") ? (
+            <Card>
+              <CardContent className="p-4 sm:p-6 md:p-8" style={cardContentStyle}>
+                <div className="space-y-6">
+                  {renderAudioSection()}
+                  {contentLoading ? (
+                    <div className="animate-pulse space-y-4">
+                      {Array.from({ length: 15 }).map((_, i) => (
+                        <div key={i} className="h-4 bg-muted rounded"></div>
+                      ))}
+                    </div>
+                  ) : error ? (
+                    <div className="text-center py-12 space-y-4">
+                      <AlertCircle className="h-12 w-12 text-destructive mx-auto" />
+                      <div>
+                        <h3 className="text-lg font-semibold mb-2">
+                          {error === "content-not-available"
+                            ? t("errors.contentNotAvailable")
+                            : t("errors.contentError")}
+                        </h3>
+                        <p className="text-muted-foreground">
+                          {errorMessage || t("errors.general")}
+                        </p>
+                      </div>
+                      {error === "content-fetch-error" && (
+                        <Button
+                          onClick={() => chapter && fetchChapterContent(chapter)}
+                          variant="outline"
+                        >
+                          <RefreshCw className="h-4 w-4 mr-2" />
+                          {t("actions.retry")}
+                        </Button>
+                      )}
+                    </div>
+                  ) : chapterContent ? (
+                    <div className="prose prose-lg dark:prose-invert max-w-none">
+                      <div className="chapter-content leading-relaxed text-base">
+                        {renderHtmlContent(chapterContent.content || "")}
+                      </div>
+                    </div>
+                  ) : chapter && chapter.isLocked && !chapter.isUnlocked ? (
+                    <div className="flex flex-col items-center justify-center py-16 space-y-6 text-center border-2 border-dashed rounded-lg bg-muted/30">
+                      <div className="p-4 rounded-full bg-primary/10">
+                        <Lock className="w-12 h-12 text-primary" />
+                      </div>
+                      <div className="space-y-2">
+                        <h3 className="text-2xl font-bold">{t("locked.title", { defaultMessage: "Chapter Locked" })}</h3>
+                        <p className="text-muted-foreground max-w-md mx-auto">
+                          {t("locked.description", { defaultMessage: "This chapter is locked. Unlock it to continue reading." })}
+                        </p>
+                      </div>
+                      <div className="flex items-center gap-2 text-xl font-semibold">
+                        <span>{t("locked.price", { defaultMessage: "Price:" })}</span>
+                        <Badge variant="secondary" className="px-3 py-1 text-lg">
+                          {chapter.price} Coins
+                        </Badge>
+                      </div>
+                      <Button
+                        size="lg"
+                        onClick={handleUnlock}
+                        disabled={unlocking}
+                        className="w-full max-w-xs"
+                      >
+                        {unlocking ? (
+                          <>
+                            <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                            {t("locked.unlocking", { defaultMessage: "Unlocking..." })}
+                          </>
+                        ) : (
+                          <>
+                            <Coins className="w-4 h-4 mr-2" />
+                            {t("locked.unlockButton", { defaultMessage: "Unlock Chapter" })}
+                          </>
+                        )}
+                      </Button>
+                      {!isAuthenticated && (
+                        <p className="text-sm text-yellow-600 dark:text-yellow-500">
+                          {t("locked.loginRequired", { defaultMessage: "Please login to unlock chapters." })}
+                        </p>
+                      )}
+                    </div>
+                  ) : null}
+                  {/* Correction Request Modal */}
+                  <CorrectionRequestModal
+                    open={correctionModalOpen}
+                    onClose={() => {
+                      setCorrectionModalOpen(false);
+                      setSelectedText("");
+                      setSelectedCharIndex(null);
+                      setSelectedParagraphIndices([]);
+                    }}
+                    selectedText={selectedText}
+                    originalText={selectedText}
+                    onSubmit={async (suggestedText, reason) => {
+                      if (!chapter) return;
+                      try {
+                        const res = await api.submitCorrectionRequest({
+                          novelId: chapter.novelId,
+                          chapterId: chapter.id,
+                          chapterNumber: chapterNumber,
+                          charIndex: selectedCharIndex ?? undefined,
+                          paragraphIndex: selectedParagraphIndices.length === 1 ? selectedParagraphIndices[0] : undefined,
+                          paragraphIndices: selectedParagraphIndices.length > 1 ? selectedParagraphIndices : undefined,
+                          originalText: selectedText,
+                          suggestedText: suggestedText,
+                          reason: reason || undefined,
+                        });
+                        if (res.success) {
+                          toast({ title: t("toasts.correctionSuccess"), description: t("toasts.correctionThanks") });
+                        } else {
+                          toast({ title: t("toasts.correctionFailed"), description: res.message || t("toasts.unknownError"), variant: "destructive" });
+                        }
+                      } catch (err: any) {
+                        toast({ title: t("toasts.correctionFailed"), description: err?.message || t("toasts.unknownError"), variant: "destructive" });
+                      }
+                    }}
+                  />
+                </div>
+              </CardContent>
+            </Card>
+          ) : (
+            // For MANGA and ANIME, we show a clean container without default card styling
+            <div className="my-6">
+              {contentLoading ? (
+                <div className="flex items-center justify-center py-32 bg-neutral-900 rounded-xl border border-neutral-800">
+                  <Loader2 className="h-8 w-8 animate-spin text-neutral-500 mr-2" />
+                  <span>Loading content...</span>
+                </div>
+              ) : error ? (
+                <Card className="bg-neutral-900 border-neutral-800 text-white">
+                  <CardContent className="p-8 text-center space-y-4">
                     <AlertCircle className="h-12 w-12 text-destructive mx-auto" />
                     <div>
                       <h3 className="text-lg font-semibold mb-2">
                         {error === "content-not-available"
-                          ? t("errors.contentNotAvailable")
-                          : t("errors.contentError")}
+                          ? "Content Not Available"
+                          : "Failed to load content"}
                       </h3>
-                      <p className="text-muted-foreground">
-                        {errorMessage || t("errors.general")}
+                      <p className="text-neutral-400">
+                        {errorMessage || "An error occurred while loading content."}
                       </p>
                     </div>
-                    {error === "content-fetch-error" && (
-                      <Button
-                        onClick={() => chapter && fetchChapterContent(chapter)}
-                        variant="outline"
-                      >
-                        <RefreshCw className="h-4 w-4 mr-2" />
-                        {t("actions.retry")}
-                      </Button>
-                    )}
-                  </div>
-                ) : chapterContent ? (
-                  <div className="prose prose-lg dark:prose-invert max-w-none">
-                    <div className="chapter-content leading-relaxed text-base">
-                      {renderHtmlContent(chapterContent.content)}
-                    </div>
-                  </div>
-                ) : chapter && chapter.isLocked && !chapter.isUnlocked ? (
-                  <div className="flex flex-col items-center justify-center py-16 space-y-6 text-center border-2 border-dashed rounded-lg bg-muted/30">
-                    <div className="p-4 rounded-full bg-primary/10">
-                      <Lock className="w-12 h-12 text-primary" />
+                    <Button
+                      onClick={() => chapter && fetchChapterContent(chapter)}
+                      variant="outline"
+                      className="bg-neutral-800 border-neutral-700 hover:bg-neutral-700 text-white"
+                    >
+                      <RefreshCw className="h-4 w-4 mr-2" />
+                      {t("actions.retry")}
+                    </Button>
+                  </CardContent>
+                </Card>
+              ) : chapterContent ? (
+                chapter.novelContentType === "MANGA" && chapterContent.mangaContent ? (
+                  <MangaReader
+                    payload={chapterContent.mangaContent}
+                    title={chapter.title}
+                    chapterNumber={chapter.chapterNumber}
+                    onNextChapter={() => navigateChapter("next")}
+                    onPrevChapter={() => navigateChapter("prev")}
+                    hasNextChapter={true}
+                    hasPrevChapter={chapter.chapterNumber > 1}
+                  />
+                ) : chapter.novelContentType === "ANIME" && chapterContent.animeContent ? (
+                  <AnimePlayer
+                    payload={chapterContent.animeContent}
+                    title={chapter.title}
+                    chapterNumber={chapter.chapterNumber}
+                    onNextEpisode={() => navigateChapter("next")}
+                    onPrevEpisode={() => navigateChapter("prev")}
+                    hasNextEpisode={true}
+                    hasPrevEpisode={chapter.chapterNumber > 1}
+                  />
+                ) : (
+                  <Card className="bg-neutral-900 border-neutral-800 text-white p-8 text-center">
+                    <p className="text-neutral-400">Media formats mismatch or layout error.</p>
+                  </Card>
+                )
+              ) : chapter && chapter.isLocked && !chapter.isUnlocked ? (
+                <Card className="bg-neutral-900 border-neutral-800 text-white">
+                  <CardContent className="flex flex-col items-center justify-center py-16 space-y-6 text-center">
+                    <div className="p-4 rounded-full bg-purple-900/20 border border-purple-800/30">
+                      <Lock className="w-12 h-12 text-purple-400" />
                     </div>
                     <div className="space-y-2">
-                      <h3 className="text-2xl font-bold">{t("locked.title", { defaultMessage: "Chapter Locked" })}</h3>
-                      <p className="text-muted-foreground max-w-md mx-auto">
-                        {t("locked.description", { defaultMessage: "This chapter is locked. Unlock it to continue reading." })}
+                      <h3 className="text-2xl font-bold">Content Locked</h3>
+                      <p className="text-neutral-400 max-w-md mx-auto">
+                        This chapter is locked. Unlock it to continue viewing.
                       </p>
                     </div>
                     <div className="flex items-center gap-2 text-xl font-semibold">
-                      <span>{t("locked.price", { defaultMessage: "Price:" })}</span>
-                      <Badge variant="secondary" className="px-3 py-1 text-lg">
+                      <span>Price:</span>
+                      <Badge variant="secondary" className="px-3 py-1 text-lg bg-neutral-850 text-neutral-200">
                         {chapter.price} Coins
                       </Badge>
                     </div>
@@ -1399,65 +1559,30 @@ export default function ChapterPage() {
                       size="lg"
                       onClick={handleUnlock}
                       disabled={unlocking}
-                      className="w-full max-w-xs"
+                      className="w-full max-w-xs bg-purple-600 hover:bg-purple-500 text-white"
                     >
                       {unlocking ? (
                         <>
                           <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                          {t("locked.unlocking", { defaultMessage: "Unlocking..." })}
+                          Unlocking...
                         </>
                       ) : (
                         <>
                           <Coins className="w-4 h-4 mr-2" />
-                          {t("locked.unlockButton", { defaultMessage: "Unlock Chapter" })}
+                          Unlock Chapter
                         </>
                       )}
                     </Button>
                     {!isAuthenticated && (
-                      <p className="text-sm text-yellow-600 dark:text-yellow-500">
-                        {t("locked.loginRequired", { defaultMessage: "Please login to unlock chapters." })}
+                      <p className="text-sm text-yellow-500">
+                        Please login to unlock chapters.
                       </p>
                     )}
-                  </div>
-                ) : null}
-                {/* Correction Request Modal */}
-                <CorrectionRequestModal
-                  open={correctionModalOpen}
-                  onClose={() => {
-                    setCorrectionModalOpen(false);
-                    setSelectedText("");
-                    setSelectedCharIndex(null);
-                    setSelectedParagraphIndices([]);
-                  }}
-                  selectedText={selectedText}
-                  originalText={selectedText}
-                  onSubmit={async (suggestedText, reason) => {
-                    if (!chapter) return;
-                    try {
-                      const res = await api.submitCorrectionRequest({
-                        novelId: chapter.novelId,
-                        chapterId: chapter.id,
-                        chapterNumber: chapterNumber,
-                        charIndex: selectedCharIndex ?? undefined,
-                        paragraphIndex: selectedParagraphIndices.length === 1 ? selectedParagraphIndices[0] : undefined,
-                        paragraphIndices: selectedParagraphIndices.length > 1 ? selectedParagraphIndices : undefined,
-                        originalText: selectedText,
-                        suggestedText: suggestedText,
-                        reason: reason || undefined,
-                      });
-                      if (res.success) {
-                        toast({ title: t("toasts.correctionSuccess"), description: t("toasts.correctionThanks") });
-                      } else {
-                        toast({ title: t("toasts.correctionFailed"), description: res.message || t("toasts.unknownError"), variant: "destructive" });
-                      }
-                    } catch (err: any) {
-                      toast({ title: t("toasts.correctionFailed"), description: err?.message || t("toasts.unknownError"), variant: "destructive" });
-                    }
-                  }}
-                />
-              </div>
-            </CardContent>
-          </Card>
+                  </CardContent>
+                </Card>
+              ) : null}
+            </div>
+          )}
 
           {/* Chapter Navigation */}
           <div className="flex justify-between items-center mt-8">

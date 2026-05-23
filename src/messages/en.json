@@ -28,6 +28,11 @@
       "en": "English"
     }
   },
+  "Footer": {
+    "title": "Contact Information",
+    "emailLabel": "Email:",
+    "disclaimer": "The stories on this website are compiled from various publicly available sources on the Internet and are for entertainment purposes only. All copyrights belong to the authors and publishers. Please contact us if you have any copyright issues."
+  },
   "Home": {
     "heroTitle": "Discover Amazing Stories",
     "heroDescription": "Dive into a world of captivating novels, from fantasy epics to romantic tales. Your next favorite story awaits.",

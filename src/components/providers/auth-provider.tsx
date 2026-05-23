@@ -23,11 +23,11 @@ interface AuthContextType {
 
 type AuthResponse = ApiResponse<
   | {
-      id?: string
-      username?: string
-      email?: string
-      roles?: string[]
-    }
+    id?: string
+    username?: string
+    email?: string
+    roles?: string[]
+  }
   | undefined
 >
 
@@ -124,7 +124,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       return false
     }
 
-    return roles.some((role) => user.roles.includes(role))
+    const userRoles = user.roles || []
+    return userRoles.some((role: string) => roles.includes(role))
   }
 
   const value: AuthContextType = {

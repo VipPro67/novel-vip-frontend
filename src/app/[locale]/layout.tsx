@@ -11,6 +11,7 @@ import { ReaderSettingsProvider } from "@/components/providers/reader-settings-p
 import { LoginModal } from "@/components/auth/login-modal"
 import { RegisterModal } from "@/components/auth/register-modal"
 import { Header } from "@/components/layout/header"
+import { SiteFooter } from "@/components/layout/footer"
 import { ChatWidget } from "@/components/chat-widget"
 import { Toaster } from "@/components/ui/toaster"
 
@@ -36,6 +37,7 @@ export default async function LocaleLayout({ children, params }: LocaleLayoutPro
 
   const messages = await getMessages({ locale })
   const googleClientId = process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID
+  const contactEmail = process.env.NEXT_PUBLIC_CONTACT_EMAIL ?? "contact@novelvip.pro"
 
   const content = (
     <NextIntlClientProvider locale={locale} messages={messages}>
@@ -45,10 +47,13 @@ export default async function LocaleLayout({ children, params }: LocaleLayoutPro
             <ReaderSettingsProvider>
               <LoginModal />
               <RegisterModal />
-              <main>
-                <Header />
-                {children}
-              </main>
+              <div className="flex min-h-screen flex-col">
+                <main className="flex-1">
+                  <Header />
+                  {children}
+                </main>
+                <SiteFooter contactEmail={contactEmail} />
+              </div>
               <ChatWidget />
               <Toaster />
             </ReaderSettingsProvider>
